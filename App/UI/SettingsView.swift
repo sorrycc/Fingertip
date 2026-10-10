@@ -17,15 +17,15 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledField("Endpoint") {
+                    LabeledField("Endpoint", systemImage: "network", tint: .blue) {
                         TextField("https://…", text: $draft.baseURL)
                             .keyboardType(.URL)
                             .textContentType(.URL)
                     }
-                    LabeledField("Model") {
+                    LabeledField("Model", systemImage: "cpu", tint: .indigo) {
                         TextField("model-id", text: $draft.modelID)
                     }
-                    LabeledField("API key") {
+                    LabeledField("API key", systemImage: "key.fill", tint: .gray) {
                         HStack {
                             Group {
                                 if revealKey {
@@ -44,11 +44,8 @@ struct SettingsView: View {
                         }
                     }
                     Toggle(isOn: $draft.supportsImages) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Screenshots")
-                            Text("Lets the model look at screens the accessibility tree can't describe.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                        SettingLabel("Screenshots", systemImage: "camera.viewfinder", tint: .purple,
+                                     detail: "Lets the model look at screens the accessibility tree can't describe.")
                     }
                 } header: {
                     Text("Model")
@@ -65,7 +62,7 @@ struct SettingsView: View {
                 Section {
                     Stepper(value: $draft.maxStepsPerRun, in: 5...300, step: 5) {
                         HStack {
-                            Text("Actions per request")
+                            SettingLabel("Actions per request", systemImage: "gauge.with.dots.needle.67percent", tint: .orange)
                             Spacer()
                             Text("\(draft.maxStepsPerRun)").monospacedDigit().foregroundStyle(.secondary)
                         }
@@ -74,7 +71,7 @@ struct SettingsView: View {
                         BlockedAppsView(apps: $draft.blockedAppList)
                     } label: {
                         HStack {
-                            Text("Blocked apps")
+                            SettingLabel("Blocked apps", systemImage: "hand.raised.fill", tint: .red)
                             Spacer()
                             Text("\(draft.blockedAppList.count)").foregroundStyle(.secondary)
                         }
@@ -86,7 +83,9 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Return here when done", isOn: $draft.returnToAppWhenDone)
+                    Toggle(isOn: $draft.returnToAppWhenDone) {
+                        SettingLabel("Return here when done", systemImage: "arrow.uturn.backward", tint: .blue)
+                    }
                 } footer: {
                     Text("Brings you back to the chat with the answer when a task finishes in another app.")
                 }
@@ -103,7 +102,8 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("Version", value: Bundle.main.versionString)
+                } footer: {
+                    AboutFooter()
                 }
             }
             .textInputAutocapitalization(.never)
@@ -130,19 +130,64 @@ struct SettingsView: View {
     }
 }
 
+/// A Settings-style row title with a tinted icon tile and an optional explanation.
+private struct SettingLabel: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    var detail: String?
+
+    init(_ title: String, systemImage: String, tint: Color, detail: String? = nil) {
+        self.title = title
+        self.systemImage = systemImage
+        self.tint = tint
+        self.detail = detail
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IconTile(systemImage: systemImage, tint: tint, size: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct AboutFooter: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            AgentGlyph(size: 36)
+            Text(Bundle.main.displayName).font(.footnote.weight(.semibold)).foregroundStyle(.primary)
+            Text("Version \(Bundle.main.versionString)").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// A form row with a fixed-width leading label, so fields line up.
 private struct LabeledField<Field: View>: View {
     let label: String
+    let systemImage: String
+    let tint: Color
     @ViewBuilder let field: Field
 
-    init(_ label: String, @ViewBuilder field: () -> Field) {
+    init(_ label: String, systemImage: String, tint: Color, @ViewBuilder field: () -> Field) {
         self.label = label
+        self.systemImage = systemImage
+        self.tint = tint
         self.field = field()
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(label).frame(width: 78, alignment: .leading)
+            IconTile(systemImage: systemImage, tint: tint, size: 28)
+            Text(label).frame(width: 72, alignment: .leading)
             field
         }
     }
@@ -200,6 +245,10 @@ private struct BlockedAppsView: View {
 }
 
 extension Bundle {
+    var displayName: String {
+        object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Agent"
+    }
+
     var versionString: String {
         let version = object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"

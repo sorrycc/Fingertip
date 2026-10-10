@@ -1,13 +1,18 @@
+import Combine
 import SwiftUI
 
 /// The automation protocol log: searchable, filterable, newest at the bottom.
 struct LogView: View {
-    @ObservedObject var logger: ProtocolLogger
+    let logger: ProtocolLogger
+    /// A throttled copy of the logger's entries: startup can log hundreds of lines a second, and
+    /// re-filtering and diffing the list for each one would stall scrolling.
+    @State private var all: [LogEntry] = []
     @State private var query = ""
     @State private var problemsOnly = false
 
     private var entries: [LogEntry] {
-        logger.entries.filter { entry in
+        guard problemsOnly || !query.isEmpty else { return all }
+        return all.filter { entry in
             (!problemsOnly || entry.level == .error || entry.level == .warning)
                 && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query)
                     || entry.phase.localizedCaseInsensitiveContains(query))
@@ -34,6 +39,7 @@ struct LogView: View {
                     description: Text(query.isEmpty ? "Start automation to see the protocol log." : "Try a different search."))
             }
         }
+        .onReceive(logger.$entries.throttle(for: .milliseconds(250), scheduler: RunLoop.main, latest: true)) { all = $0 }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search log")
         .navigationTitle("Protocol Log")
         .navigationBarTitleDisplayMode(.inline)

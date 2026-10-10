@@ -45,15 +45,69 @@ struct AnswerView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             AgentGlyph(size: 26)
-            Text(isStreaming ? AttributedString(text) : Markdown.attributed(text))
+            VStack(alignment: .leading, spacing: 10) {
+                Group {
+                    if isStreaming {
+                        Text(AttributedString(text)) + Text(" ●").foregroundStyle(Theme.brandEnd).font(.caption2)
+                    } else {
+                        Text(Markdown.attributed(text))
+                    }
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 2)
                 .textSelection(.enabled)
-                .opacity(isStreaming ? 0.75 : 1)
                 .contextMenu { CopyButton(text: text) }
+                if !isStreaming {
+                    AnswerActions(text: text)
+                        .transition(.opacity)
+                }
+            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Agent: \(text)")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Agent")
+    }
+}
+
+/// Copy and Share under a finished answer.
+private struct AnswerActions: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button {
+                UIPasteboard.general.string = text
+                copied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    copied = false
+                }
+            } label: {
+                Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            ShareLink(item: text) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+        .labelStyle(ActionLabelStyle())
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .sensoryFeedback(.success, trigger: copied) { _, new in new }
+        .animation(.snappy(duration: 0.2), value: copied)
+    }
+}
+
+private struct ActionLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.font(.caption.weight(.semibold))
+            configuration.title.font(.caption.weight(.medium))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(.quaternary.opacity(0.5), in: .capsule)
+        .contentShape(.capsule)
     }
 }
 
@@ -99,8 +153,14 @@ struct ActivityCard: View {
             }
         }
         .background(Theme.cardFill, in: Theme.card)
+        .overlay {
+            Theme.card.strokeBorder(
+                activity.isLive ? AnyShapeStyle(Theme.brand.opacity(0.5)) : AnyShapeStyle(Theme.hairline),
+                lineWidth: activity.isLive ? 1.5 : 1)
+        }
         .clipShape(Theme.card)
         .animation(.snappy(duration: 0.25), value: expanded)
+        .animation(.easeInOut(duration: 0.4), value: activity.isLive)
     }
 
     private var header: some View {
@@ -112,13 +172,22 @@ struct ActivityCard: View {
                     if activity.isLive {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: failures > 0 ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                            .foregroundStyle(failures > 0 ? Color.orange : Color.green)
+                        // A failed step the agent recovered from is routine; the subtitle still counts it.
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     }
                 }
                 .frame(width: 22)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    if activity.isLive {
+                        TimelineView(.periodic(from: activity.startedAt, by: 1)) { context in
+                            Text("Working · \(Self.elapsed(context.date.timeIntervalSince(activity.startedAt)))")
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(.primary)
+                        }
+                    } else {
+                        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    }
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 8)
@@ -136,10 +205,13 @@ struct ActivityCard: View {
     }
 
     private var title: String {
-        if activity.isLive { return "Working…" }
         guard let end = activity.endedAt else { return "Worked" }
-        let seconds = max(Int(end.timeIntervalSince(activity.startedAt).rounded()), 1)
-        return seconds < 60 ? "Worked for \(seconds)s" : "Worked for \(seconds / 60)m \(seconds % 60)s"
+        return "Worked for " + Self.elapsed(end.timeIntervalSince(activity.startedAt))
+    }
+
+    private static func elapsed(_ interval: TimeInterval) -> String {
+        let seconds = max(Int(interval.rounded()), 1)
+        return seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
     }
 
     private var subtitle: String {
@@ -214,9 +286,10 @@ private struct StepRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(step.title)
-                                .font(.subheadline)
+                                .font(.subheadline.weight(step.status == .running ? .medium : .regular))
                                 .foregroundStyle(step.status == .interrupted ? .secondary : .primary)
                                 .lineLimit(2)
+                                .shimmering(active: step.status == .running)
                             if let detail = step.detail {
                                 Text(detail)
                                     .font(.caption)
@@ -424,9 +497,15 @@ struct RunStatusRow: View {
 }
 
 private struct Shimmer: ViewModifier {
+    var active = true
     @State private var phase: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
+        if active, !reduceMotion { shimmer(content) } else { content }
+    }
+
+    private func shimmer(_ content: Content) -> some View {
         content
             .overlay {
                 GeometryReader { proxy in
@@ -445,5 +524,5 @@ private struct Shimmer: ViewModifier {
 }
 
 extension View {
-    func shimmering() -> some View { modifier(Shimmer()) }
+    func shimmering(active: Bool = true) -> some View { modifier(Shimmer(active: active)) }
 }

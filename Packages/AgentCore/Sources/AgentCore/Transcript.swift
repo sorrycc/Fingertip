@@ -140,7 +140,8 @@ public final class TranscriptBuilder {
 
         var items: [Transcript.Item] = []
         var activity: Activity?
-        var screen: String?
+        /// The latest result that ended on a screen. Its text is joined only when an uncached call needs it.
+        var screen: ToolResultMessage?
         var running: Step?
 
         func close() {
@@ -175,7 +176,7 @@ public final class TranscriptBuilder {
                         activity?.entries.append(.step(step))
                         if let result {
                             activity?.endedAt = result.timestamp
-                            if Self.showsScreen(result) { screen = result.text }
+                            if Self.showsScreen(result) { screen = result }
                         }
                     }
                 }
@@ -216,9 +217,9 @@ public final class TranscriptBuilder {
         return Transcript(items: items, status: status)
     }
 
-    private func describe(_ call: ToolCall, result: ToolResultMessage?, screen: String?, isBusy: Bool) -> Step {
+    private func describe(_ call: ToolCall, result: ToolResultMessage?, screen: ToolResultMessage?, isBusy: Bool) -> Step {
         if result != nil, let cached = finished[call.id] { return cached }
-        let description = StepDescriber.describe(call, result: result, screen: screen)
+        let description = StepDescriber.describe(call, result: result, screen: screen?.text)
         guard let result else {
             return Step(id: call.id, tool: call.name, title: description.title, status: isBusy ? .running : .interrupted)
         }

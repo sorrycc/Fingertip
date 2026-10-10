@@ -9,6 +9,26 @@ enum Theme {
     static let cardRadius: CGFloat = 18
     static let card = RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
     static let cardFill = Color(.secondarySystemBackground)
+    /// A barely-there edge that keeps cards crisp on both light and dark backgrounds.
+    static let hairline = Color.primary.opacity(0.06)
+}
+
+/// A soft, slowly breathing brand-colored glow to sit behind a hero mark.
+struct AmbientGlow: View {
+    @State private var breathe = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        RadialGradient(
+            colors: [Theme.brandEnd.opacity(0.28), Theme.brandStart.opacity(0.12), .clear],
+            center: .center, startRadius: 0, endRadius: 130)
+            .scaleEffect(breathe ? 1.08 : 0.92)
+            .opacity(breathe ? 1 : 0.75)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 3.2).repeatForever(), value: breathe)
+            .onAppear { breathe = true }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
 }
 
 /// The app's mark: a tapping hand on the brand gradient.

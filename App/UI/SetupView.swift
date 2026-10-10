@@ -12,7 +12,7 @@ struct SetupView: View {
         NavigationStack {
             List {
                 Section {
-                    StatusHero()
+                    StatusHero { importing = true }
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                 }
@@ -97,6 +97,7 @@ struct SetupView: View {
 /// The big status block: what's happening, progress while starting, and the main button.
 private struct StatusHero: View {
     @Environment(AutomationSession.self) private var automation
+    let importPairing: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
@@ -104,6 +105,9 @@ private struct StatusHero: View {
                 Circle()
                     .fill(automation.phase.tint.opacity(0.14))
                     .frame(width: 84, height: 84)
+                Circle()
+                    .strokeBorder(automation.phase.tint.opacity(0.25), lineWidth: 1)
+                    .frame(width: 104, height: 104)
                 Image(systemName: automation.phase.systemImage)
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(automation.phase.tint)
@@ -143,14 +147,22 @@ private struct StatusHero: View {
             .controlSize(.large)
         case .starting:
             EmptyView()
-        case .idle, .failed:
-            Button { Task { await automation.start() } } label: {
-                Label(automation.phase == .idle ? "Start Automation" : "Try Again", systemImage: "play.fill")
+        case .idle where !automation.pairingLoaded, .failed where !automation.pairingLoaded:
+            Button(action: importPairing) {
+                Label("Import Pairing Files", systemImage: "square.and.arrow.down")
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
-            .disabled(!automation.pairingLoaded)
+        case .idle, .failed:
+            Button { Task { await automation.start() } } label: {
+                Label(automation.phase == .idle ? "Start Automation" : "Try Again", systemImage: "play.fill")
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
         }
     }
 

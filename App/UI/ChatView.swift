@@ -139,12 +139,15 @@ private struct EmptyChatView: View {
         ("checklist", .orange, "Remind me to call Mom tomorrow at 6 pm"),
     ]
 
+    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
     var body: some View {
         ScrollView {
             VStack(spacing: 28) {
                 VStack(spacing: 14) {
                     AgentGlyph(size: 64)
                         .shadow(color: Theme.brandEnd.opacity(0.35), radius: 18, y: 8)
+                        .background { AmbientGlow().frame(width: 260, height: 260) }
                     Text("What should I do?")
                         .font(.title2.weight(.bold))
                     Text("Describe a task. I'll open the apps and tap through them for you, then come back with the result.")
@@ -165,24 +168,12 @@ private struct EmptyChatView: View {
                         .foregroundStyle(.secondary)
                         .textCase(.uppercase)
                         .padding(.leading, 4)
-                    ForEach(Self.suggestions, id: \.text) { suggestion in
-                        Button { onPick(suggestion.text) } label: {
-                            HStack(spacing: 12) {
-                                IconTile(systemImage: suggestion.icon, tint: suggestion.tint, size: 32)
-                                Text(suggestion.text)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.primary)
-                                    .multilineTextAlignment(.leading)
-                                Spacer(minLength: 4)
-                                Image(systemName: "arrow.up.left")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(Self.suggestions, id: \.text) { suggestion in
+                            SuggestionCard(icon: suggestion.icon, tint: suggestion.tint, text: suggestion.text) {
+                                onPick(suggestion.text)
                             }
-                            .padding(12)
-                            .background(Theme.cardFill, in: Theme.card)
-                            .contentShape(Theme.card)
                         }
-                        .buttonStyle(PressableStyle())
                     }
                 }
             }
@@ -207,7 +198,7 @@ private struct EmptyChatView: View {
         case .starting(let step):
             return SetupCallout(
                 icon: "hourglass", tint: .orange, title: "Starting automation…", message: step.title,
-                action: "View progress", progress: true) { showSetup = true }
+                action: "View", progress: true) { showSetup = true }
         case .failed(let message):
             return SetupCallout(
                 icon: "exclamationmark.triangle.fill", tint: .red, title: "Automation stopped", message: message,
@@ -220,6 +211,34 @@ private struct EmptyChatView: View {
                     : "Import your pairing files to get started.",
                 action: automation.pairingLoaded ? "Start" : "Set up") { showSetup = true }
         }
+    }
+}
+
+private struct SuggestionCard: View {
+    let icon: String
+    let tint: Color
+    let text: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                IconTile(systemImage: icon, tint: tint, size: 30)
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(4, reservesSpace: true)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Theme.cardFill, in: Theme.card)
+            .overlay { Theme.card.strokeBorder(Theme.hairline) }
+            .contentShape(Theme.card)
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityHint("Puts this task in the message field")
     }
 }
 
@@ -315,7 +334,7 @@ private struct Composer: View {
 
     private var buttonFill: AnyShapeStyle {
         if showsStop { return AnyShapeStyle(Color.red.gradient) }
-        return hasText ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color.gray.opacity(0.35))
+        return hasText ? AnyShapeStyle(Theme.brand) : AnyShapeStyle(Color.gray.opacity(0.35))
     }
 }
 
@@ -332,7 +351,7 @@ private struct AutomationBar: View {
                 } else {
                     Image(systemName: phase.systemImage).foregroundStyle(phase.tint)
                 }
-                Text(message).font(.footnote.weight(.medium)).lineLimit(1)
+                Text(message).font(.footnote.weight(.medium)).lineLimit(2)
                 Spacer(minLength: 4)
                 Text(phase.isStarting ? "View" : "Set up")
                     .font(.footnote.weight(.semibold))
