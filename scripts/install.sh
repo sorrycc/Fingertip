@@ -18,7 +18,7 @@ HW_UDID="$(xcrun devicectl device info details --device "$UDID" 2>/dev/null | aw
 xcodegen generate --quiet
 xcodebuild -project IPhoneAgent.xcodeproj -scheme IPhoneAgent -configuration Debug \
   -destination "id=${HW_UDID:-$UDID}" -derivedDataPath build/DerivedData -allowProvisioningUpdates build \
-  | grep -E 'error:|warning: .*/App/|\*\* BUILD' || true
+  > build/xcodebuild.log 2>&1 || { grep -E 'error:' build/xcodebuild.log | sort -u; echo "Build failed (full log: build/xcodebuild.log)"; exit 1; }
 
 APP=build/DerivedData/Build/Products/Debug-iphoneos/IPhoneAgent.app
 [ -d "$APP" ] || { echo "Build failed"; exit 1; }
