@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -23,6 +24,10 @@ final class AutomationSession: ObservableObject {
     private var testManager: TestManagerClient?
     private var selfRunner: SelfRunner?
     private var heartbeatTimer: Timer?
+    private var logSink: AnyCancellable?
+
+    /// The protocol log mirrored to Documents, so it can be pulled with `devicectl` after the console stream drops.
+    static var logURL: URL { URL.documentsDirectory.appending(path: "automation.log") }
 
     var isReady: Bool { phase == .ready }
 
@@ -31,6 +36,13 @@ final class AutomationSession: ObservableObject {
     }
 
     init() {
+        try? Data().write(to: Self.logURL)
+        logSink = logger.$entries
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                try? self.logger.allText.data(using: .utf8)?.write(to: Self.logURL)
+            }
         loadSavedPairing()
         // Ask early so the prompt doesn't interrupt the first Start.
         Task { _ = await LocalNetworkPermission.request(timeout: .seconds(10)) }
@@ -91,9 +103,9 @@ final class AutomationSession: ObservableObject {
             client.disconnect()
             logger.log("Lockdown handshake OK", phase: "P1", level: .success)
         } catch {
-            let hint = (error as? LockdownError)?.recoverySuggestion.map { " — \($0)" } ?? ""
-            let access = permission == .granted ? "" : " Also check Settings → Privacy & Security → Local Network → Agent is on."
-            return fail("Lockdown failed: \(error.localizedDescription)\(hint). Is LocalDevVPN connected?\(access)")
+            // Diagnostic only: the idevice tunnel below does its own lockdown handshake.
+            let access = permission == .granted ? "" : " (Local Network permission: \(permission))"
+            logger.log("Swift lockdown check failed: \(error.localizedDescription)\(access) — trying idevice tunnel", phase: "P1", level: .warning)
         }
 
         // 2. Heartbeat and tunnel.
