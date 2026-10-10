@@ -32,7 +32,7 @@ App (SwiftUI chat) ── AgentCore ──────────────�
 
 - iPhone on iOS 26 with Developer Mode on; Mac with Xcode 26, XcodeGen, Rust (`rustup target add aarch64-apple-ios`)
 - Xcode signed in to the Apple Developer team in `Config/Base.xcconfig` (`KU8S35TEW8`)
-- [LocalDevVPN](https://apps.apple.com/app/localdevvpn/id6755608044) on the phone
+- LocalDevVPN (App Store) on the phone
 - Developer Disk Image mounted: connect to the Mac with Xcode once after each reboot (or use StikDebug)
 
 ## Setup
