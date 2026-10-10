@@ -2,8 +2,9 @@ import Combine
 import Foundation
 import SwiftUI
 
-/// Brings up on-device UI automation (adapted from TouchSynthesis's ContentView):
-/// lockdown over the LocalDevVPN loopback → idevice heartbeat → testmanagerd DTX → XCTest self-runner.
+/// Brings up on-device UI automation (adapted from TouchSynthesis's ContentView, moved to RemotePairing):
+/// LocalDevVPN loopback → RPPairing tunnel to 10.7.0.1:49152 → RSD heartbeat → testmanagerd DTX via RSD proxies
+/// → XCTest self-runner. iOS 26.4+ resets lockdownd (62078) connections over the loopback, hence RPPairing.
 @MainActor
 final class AutomationSession: ObservableObject {
     enum Phase: Equatable {
@@ -20,20 +21,26 @@ final class AutomationSession: ObservableObject {
     let logger = ProtocolLogger()
 
     private var pairingRecord: PairingRecord?
+    private var hasRemotePairing = false
     private var tunnel: IdeviceTunnel?
     private var testManager: TestManagerClient?
     private var selfRunner: SelfRunner?
     private var heartbeatTimer: Timer?
     private var logSink: AnyCancellable?
 
+    static let deviceIP = "10.7.0.1"
+    static let remotePairingPort: UInt16 = 49152
+
     /// The protocol log mirrored to Documents, so it can be pulled with `devicectl` after the console stream drops.
     static var logURL: URL { URL.documentsDirectory.appending(path: "automation.log") }
 
     var isReady: Bool { phase == .ready }
 
-    static var pairingURL: URL {
-        URL.documentsDirectory.appending(path: "pairing.plist")
-    }
+    /// Classic lockdown pairing record (HostCertificate…). Only its type is needed now: TestManagerClient takes a
+    /// LockdownClient, which we never connect, so it falls through to the RSD path.
+    static var pairingURL: URL { URL.documentsDirectory.appending(path: "pairing.plist") }
+    /// RemotePairing file (public_key, private_key, identifier), made by `idevice-tools rppairing pair`.
+    static var remotePairingURL: URL { URL.documentsDirectory.appending(path: "rp_pairing.plist") }
 
     init() {
         try? Data().write(to: Self.logURL)
@@ -51,29 +58,38 @@ final class AutomationSession: ObservableObject {
     // MARK: Pairing
 
     func loadSavedPairing() {
-        guard let data = try? Data(contentsOf: Self.pairingURL) else {
-            logger.log("No pairing file yet — import one in Setup", phase: "INIT", level: .warning)
-            return
+        if let data = try? Data(contentsOf: Self.pairingURL) {
+            do {
+                pairingRecord = try PairingRecord(fromData: data)
+                logger.log("Loaded lockdown pairing (HostID: \(pairingRecord!.hostID))", phase: "INIT", level: .success)
+            } catch {
+                logger.log("Saved lockdown pairing is invalid: \(error)", phase: "INIT", level: .error)
+            }
         }
-        do {
-            pairingRecord = try PairingRecord(fromData: data)
-            pairingLoaded = true
-            logger.log("Loaded pairing (HostID: \(pairingRecord!.hostID))", phase: "INIT", level: .success)
-        } catch {
-            logger.log("Saved pairing is invalid: \(error)", phase: "INIT", level: .error)
-        }
+        hasRemotePairing = FileManager.default.fileExists(atPath: Self.remotePairingURL.path)
+        logger.log(hasRemotePairing ? "Loaded RemotePairing file" : "No RemotePairing file — run scripts/install.sh or import rp_pairing.plist",
+                   phase: "INIT", level: hasRemotePairing ? .success : .warning)
+        pairingLoaded = pairingRecord != nil && hasRemotePairing
     }
 
+    /// Accepts either file; tells them apart by their keys.
     func importPairing(from url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            let record = try PairingRecord(fromData: data)
-            try data.write(to: Self.pairingURL, options: .completeFileProtectionUntilFirstUserAuthentication)
-            pairingRecord = record
-            pairingLoaded = true
-            logger.log("Pairing imported (HostID: \(record.hostID))", phase: "IMPORT", level: .success)
+            let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] ?? [:]
+            if plist["HostCertificate"] != nil {
+                _ = try PairingRecord(fromData: data)
+                try data.write(to: Self.pairingURL, options: .completeFileProtectionUntilFirstUserAuthentication)
+                logger.log("Lockdown pairing imported", phase: "IMPORT", level: .success)
+            } else if plist["private_key"] != nil {
+                try data.write(to: Self.remotePairingURL, options: .completeFileProtectionUntilFirstUserAuthentication)
+                logger.log("RemotePairing file imported", phase: "IMPORT", level: .success)
+            } else {
+                logger.log("Not a pairing file (keys: \(plist.keys.sorted()))", phase: "IMPORT", level: .error)
+            }
+            loadSavedPairing()
         } catch {
             logger.log("Import failed: \(error.localizedDescription)", phase: "IMPORT", level: .error)
         }
@@ -82,8 +98,8 @@ final class AutomationSession: ObservableObject {
     // MARK: Start / stop
 
     func start() async {
-        guard let record = pairingRecord else {
-            phase = .failed("Import a pairing file first")
+        guard let record = pairingRecord, hasRemotePairing else {
+            phase = .failed("Pairing files missing — run scripts/install.sh with the phone plugged in")
             return
         }
         guard !isStarting, phase != .ready else { return }
@@ -93,44 +109,29 @@ final class AutomationSession: ObservableObject {
         let permission = await LocalNetworkPermission.request()
         logger.log("Local Network permission: \(permission)", phase: "P0", level: permission == .denied ? .error : .info)
 
-        // 1. Lockdown handshake, proving the VPN loopback and pairing record work.
-        phase = .starting("Connecting to lockdownd via VPN…")
-        do {
-            let client = LockdownClient(pairingRecord: record)
-            try client.connect()
-            _ = try client.queryType()
-            _ = try client.startSession()
-            client.disconnect()
-            logger.log("Lockdown handshake OK", phase: "P1", level: .success)
-        } catch {
-            // Diagnostic only: the idevice tunnel below does its own lockdown handshake.
-            let access = permission == .granted ? "" : " (Local Network permission: \(permission))"
-            logger.log("Swift lockdown check failed: \(error.localizedDescription)\(access) — trying idevice tunnel", phase: "P1", level: .warning)
-        }
-
-        // 2. Heartbeat and tunnel.
-        phase = .starting("Starting heartbeat & tunnel…")
+        // 1. RPPairing tunnel + RSD heartbeat.
+        phase = .starting("Opening RemotePairing tunnel via VPN…")
         let tunnel = self.tunnel ?? IdeviceTunnel()
-        let path = Self.pairingURL.path
+        let path = Self.remotePairingURL.path
         let tunnelError: String? = await Task.detached {
-            tunnel.connect(withPairingFile: path, deviceIP: "10.7.0.1", port: 62078)
+            tunnel.connect(withPairingFile: path, deviceIP: Self.deviceIP, port: Self.remotePairingPort)
         }.value
         if let tunnelError {
-            return fail("Tunnel failed: \(tunnelError). Is the Developer Disk Image mounted?")
+            let access = permission == .granted ? "" : " Check Settings → Privacy & Security → Local Network → Agent."
+            return fail("Tunnel failed: \(tunnelError). Is LocalDevVPN connected?\(access)")
         }
         self.tunnel = tunnel
         heartbeatOK = true
+        logger.log("RemotePairing tunnel + heartbeat up", phase: "P1", level: .success)
         BackgroundKeepAlive.shared.start()
         keepAliveActive = BackgroundKeepAlive.shared.isActive
         startHeartbeat()
 
-        // 3. Self-runner: DTX to testmanagerd, dlopen XCTest, enable automation (passcode prompt).
+        // 2. Self-runner: DTX to testmanagerd (RSD proxies), dlopen XCTest, enable automation (passcode prompt).
         phase = .starting("Starting XCTest self-runner (≈60s, then enter passcode)…")
         do {
+            // Never connected: its startService fails fast and TestManagerClient uses the tunnel's RSD proxies.
             let lockdown = LockdownClient(pairingRecord: record)
-            try lockdown.connect()
-            _ = try lockdown.queryType()
-            _ = try lockdown.startSession()
             let testManager = TestManagerClient(lockdown: lockdown, tunnel: tunnel, logger: logger)
             let runner = SelfRunner(lockdown: lockdown, testManager: testManager, tunnel: tunnel, logger: logger)
             self.testManager = testManager

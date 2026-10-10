@@ -25,8 +25,7 @@ targets:
           - "Info.plist"
           - "TouchSynthesis.entitlements"
           - "TouchSynthesis-Bridging-Header.h"
-          - "idevice/libidevice_ffi.a"
-          - "idevice/idevice.h"
+          - "idevice/**"   # forked into App/Automation/IdeviceTunnel.m (RemotePairing); FFI from build/idevice
     dependencies:
       - package: AgentCore
     settings:
@@ -40,9 +39,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_OBJC_BRIDGING_HEADER: App/Resources/IPhoneAgent-Bridging-Header.h
         LIBRARY_SEARCH_PATHS:
-          - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/idevice"
+          - "$(PROJECT_DIR)/build/idevice"
         HEADER_SEARCH_PATHS:
-          - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/idevice"
+          - "$(PROJECT_DIR)/build/idevice"
           - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/TouchSynthesizer"
           - "$(PROJECT_DIR)/App/Automation"
         OTHER_LDFLAGS:
