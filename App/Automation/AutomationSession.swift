@@ -130,6 +130,10 @@ final class AutomationSession: ObservableObject {
         // 2. Self-runner: DTX to testmanagerd (RSD proxies), dlopen XCTest, enable automation (passcode prompt).
         phase = .starting("Starting XCTest self-runner (≈60s, then enter passcode)…")
         do {
+            let preload: String = await Task.detached { DeviceAutomation.preloadXCTest() }.value
+            for line in preload.split(separator: "\n") {
+                logger.log(String(line), phase: "DLOPEN", level: line.hasPrefix("OK") ? .success : .error)
+            }
             // Never connected: its startService fails fast and TestManagerClient uses the tunnel's RSD proxies.
             let lockdown = LockdownClient(pairingRecord: record)
             let testManager = TestManagerClient(lockdown: lockdown, tunnel: tunnel, logger: logger)

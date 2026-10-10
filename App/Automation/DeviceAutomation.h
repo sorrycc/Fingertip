@@ -22,6 +22,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// Opens a URL with its default app. Returns nil on success or an error description.
 + (nullable NSString *)openURL:(NSURL *)url path:(NSString *_Nullable *_Nullable)path;
 
+/// dlopens XCTest and its automation frameworks from the mounted DDI, logging each dlerror.
+/// Returns a multi-line report; loading here first means TouchSynthesizer's own dlopen reuses the handle.
++ (NSString *)preloadXCTest;
+
 /// Which of the classes and selectors this file depends on resolved at runtime.
 + (NSString *)diagnostics;
 

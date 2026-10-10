@@ -1,5 +1,6 @@
 #import "DeviceAutomation.h"
 #import <UIKit/UIKit.h>
+#import <dlfcn.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 
@@ -282,6 +283,26 @@ static id KV(id object, NSString *key) {
         [failures addObject:@"workspace: refused"];
     }
     return [NSString stringWithFormat:@"Could not open %@ (%@)", url, [failures componentsJoinedByString:@"; "]];
+}
+
+#pragma mark - Loading
+
++ (NSString *)preloadXCTest {
+    NSMutableString *report = [NSMutableString new];
+    NSArray *paths = @[
+        @"/System/Developer/Library/PrivateFrameworks/XCTestCore.framework/XCTestCore",
+        @"/System/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework/XCTAutomationSupport",
+        @"/System/Developer/Library/Frameworks/XCUIAutomation.framework/XCUIAutomation",
+        @"/System/Developer/Library/Frameworks/XCTest.framework/XCTest",
+    ];
+    for (NSString *path in paths) {
+        BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+        void *handle = dlopen(path.fileSystemRepresentation, RTLD_NOW);
+        const char *error = handle ? NULL : dlerror();
+        [report appendFormat:@"%@ %@ (exists: %@)%@\n", handle ? @"OK " : @"ERR", path.lastPathComponent,
+                             exists ? @"yes" : @"no", error ? [NSString stringWithFormat:@": %s", error] : @""];
+    }
+    return report;
 }
 
 #pragma mark - Diagnostics
