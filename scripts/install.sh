@@ -31,5 +31,6 @@ if [ "${PUSH_PAIRING:-1}" = 1 ]; then
   xcrun devicectl device copy to --device "$UDID" --source "$RECORD" \
     --domain-type appDataContainer --domain-identifier "$BUNDLE_ID" --destination Documents/pairing.plist
   echo "Pairing record installed into the app."
+  scripts/enable-wifi-lockdown.sh
 fi
 echo "Done. Open 'Agent' on the phone → Setup → Start UI automation."
