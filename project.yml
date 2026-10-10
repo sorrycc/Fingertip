@@ -1,0 +1,54 @@
+name: IPhoneAgent
+options:
+  bundleIdPrefix: com.sorrycc
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+packages:
+  AgentCore:
+    path: Packages/AgentCore
+targets:
+  IPhoneAgent:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      # TouchSynthesis core (git submodule): lockdown, DTX, testmanagerd, XCTest touch synthesis, idevice tunnel.
+      # Its App/ and RemoteControl/ folders are replaced by ours.
+      - path: vendor/TouchSynthesis/TouchSynthesis
+        excludes:
+          - "App/**"
+          - "RemoteControl/**"
+          - "Info.plist"
+          - "TouchSynthesis.entitlements"
+          - "TouchSynthesis-Bridging-Header.h"
+          - "idevice/libidevice_ffi.a"
+          - "idevice/idevice.h"
+    dependencies:
+      - package: AgentCore
+    settings:
+      base:
+        PRODUCT_NAME: IPhoneAgent
+        PRODUCT_BUNDLE_IDENTIFIER: com.sorrycc.iphoneagent
+        INFOPLIST_FILE: App/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/Resources/IPhoneAgent.entitlements
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_OBJC_BRIDGING_HEADER: App/Resources/IPhoneAgent-Bridging-Header.h
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/idevice"
+        HEADER_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/idevice"
+          - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/TouchSynthesizer"
+          - "$(PROJECT_DIR)/App/Automation"
+        OTHER_LDFLAGS:
+          - "-lidevice_ffi"
+          - "-framework Security"
+          - "-framework SystemConfiguration"
+          - "-framework Network"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO

@@ -1,0 +1,10 @@
+Config/Secrets.xcconfig
+*.xcodeproj/
+build/
+DerivedData/
+.build/
+.swiftpm/
+Packages/AgentCore/.build/
+*.mobiledevicepairing
+pairing*.plist
+.DS_Store

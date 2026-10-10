@@ -1,0 +1,3 @@
+[submodule "vendor/TouchSynthesis"]
+	path = vendor/TouchSynthesis
+	url = https://github.com/willfaust/TouchSynthesis.git

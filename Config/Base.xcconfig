@@ -1,0 +1,5 @@
+// Shared build settings. Personal values go in Secrets.xcconfig (gitignored).
+DEVELOPMENT_TEAM = KU8S35TEW8
+AGENT_API_KEY =
+
+#include? "Secrets.xcconfig"
