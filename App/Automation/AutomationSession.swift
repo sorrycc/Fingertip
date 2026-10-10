@@ -32,6 +32,8 @@ final class AutomationSession: ObservableObject {
 
     init() {
         loadSavedPairing()
+        // Ask early so the prompt doesn't interrupt the first Start.
+        Task { _ = await LocalNetworkPermission.request(timeout: .seconds(10)) }
     }
 
     // MARK: Pairing
@@ -74,6 +76,11 @@ final class AutomationSession: ObservableObject {
         }
         guard !isStarting, phase != .ready else { return }
 
+        // 0. Local Network permission; without it the loopback connection fails with EHOSTUNREACH.
+        phase = .starting("Checking Local Network permission…")
+        let permission = await LocalNetworkPermission.request()
+        logger.log("Local Network permission: \(permission)", phase: "P0", level: permission == .denied ? .error : .info)
+
         // 1. Lockdown handshake, proving the VPN loopback and pairing record work.
         phase = .starting("Connecting to lockdownd via VPN…")
         do {
@@ -85,7 +92,8 @@ final class AutomationSession: ObservableObject {
             logger.log("Lockdown handshake OK", phase: "P1", level: .success)
         } catch {
             let hint = (error as? LockdownError)?.recoverySuggestion.map { " — \($0)" } ?? ""
-            return fail("Lockdown failed: \(error.localizedDescription)\(hint). Is LocalDevVPN connected?")
+            let access = permission == .granted ? "" : " Also check Settings → Privacy & Security → Local Network → Agent is on."
+            return fail("Lockdown failed: \(error.localizedDescription)\(hint). Is LocalDevVPN connected?\(access)")
         }
 
         // 2. Heartbeat and tunnel.

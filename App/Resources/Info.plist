@@ -45,6 +45,10 @@
 	<string>Keeps the agent running while it operates other apps.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connects to this iPhone's own developer services through the LocalDevVPN loopback.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_iphoneagent._tcp</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
