@@ -290,6 +290,7 @@ static id KV(id object, NSString *key) {
 + (NSString *)preloadXCTest {
     NSMutableString *report = [NSMutableString new];
     NSArray *paths = @[
+        @"/System/Developer/Library/Frameworks/Testing.framework/Testing",
         @"/System/Developer/Library/PrivateFrameworks/XCTestCore.framework/XCTestCore",
         @"/System/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework/XCTAutomationSupport",
         @"/System/Developer/Library/Frameworks/XCUIAutomation.framework/XCUIAutomation",

@@ -44,6 +44,13 @@ targets:
           - "$(PROJECT_DIR)/build/idevice"
           - "$(PROJECT_DIR)/vendor/TouchSynthesis/TouchSynthesis/TouchSynthesizer"
           - "$(PROJECT_DIR)/App/Automation"
+        # XCTest on the DDI links @rpath/Testing.framework (Swift Testing); let dyld find it like a test runner would.
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+          - "/System/Developer/Library/Frameworks"
+          - "/System/Developer/Library/PrivateFrameworks"
+          - "/System/Developer/usr/lib"
         OTHER_LDFLAGS:
           - "-lidevice_ffi"
           - "-framework Security"
