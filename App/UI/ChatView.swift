@@ -1,246 +1,375 @@
 import AgentCore
-import PiDurableKit
 import SwiftUI
 
 struct ChatView: View {
-    @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var automation: AutomationSession
+    @Environment(AppModel.self) private var model
+    @Environment(AutomationSession.self) private var automation
     @State private var draft = ""
     @State private var showSetup = false
     @State private var showSettings = false
+    @State private var sent = 0
     @FocusState private var inputFocused: Bool
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                StatusBanner(showSetup: $showSetup)
-                transcript
-                composer
+            content
+                .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+                .background(Color(.systemBackground))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { toolbar }
+                .sheet(isPresented: $showSetup) { SetupView() }
+                .sheet(isPresented: $showSettings) { SettingsView() }
+                .onAppear { if !automation.pairingLoaded { showSetup = true } }
+                .sensoryFeedback(.impact(weight: .light), trigger: sent)
+                .sensoryFeedback(trigger: model.isBusy) { wasBusy, isBusy in wasBusy && !isBusy ? .success : nil }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if model.transcript.isEmpty {
+            EmptyChatView(showSetup: $showSetup, showSettings: $showSettings) { prompt in
+                draft = prompt
+                inputFocused = true
             }
-            .navigationTitle("iPhone Agent")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showSetup = true } label: { Image(systemName: "hand.tap") }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("New task", systemImage: "square.and.pencil") { Task { await model.newTask() } }
-                        Button("Settings", systemImage: "gear") { showSettings = true }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                }
-            }
-            .sheet(isPresented: $showSetup) { SetupView() }
-            .sheet(isPresented: $showSettings) { SettingsView() }
-            .onAppear { if !automation.pairingLoaded { showSetup = true } }
+        } else {
+            TranscriptList(transcript: model.transcript)
         }
     }
 
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if let view = model.view {
-                        ForEach(view.entries) { entry in
-                            EntryRow(entry: entry, view: view)
-                        }
-                        if let message = view.streamingMessage, !message.text.isEmpty {
-                            Bubble(text: message.text, isUser: false).opacity(0.7)
-                        }
-                        ForEach(view.live.tools) { slot in
-                            Label("\(slot.name) …", systemImage: "gearshape.2")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        if let retry = view.live.generation?.retry {
-                            Text("Retrying: \(retry.error)").font(.caption).foregroundStyle(.orange)
-                        }
-                    } else if model.isOpening {
-                        ProgressView("Opening agent…").frame(maxWidth: .infinity)
-                    } else {
-                        EmptyState()
-                    }
-                    if let error = model.agentError {
-                        Text(error).font(.footnote).foregroundStyle(.red)
-                    }
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .padding()
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: model.view?.entries.count) { proxy.scrollTo("bottom", anchor: .bottom) }
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("Settings", systemImage: "gearshape") { showSettings = true }
         }
-    }
-
-    private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask the agent to do something…", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .focused($inputFocused)
-                .padding(10)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
-            if model.isBusy {
-                Button { Task { await model.stop() } } label: {
-                    Image(systemName: "stop.circle.fill").font(.system(size: 32)).foregroundStyle(.red)
-                }
-            } else {
-                Button {
-                    let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { return }
-                    draft = ""
-                    inputFocused = false
-                    Task { await model.send(text) }
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 32))
-                }
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.bar)
-    }
-}
-
-/// Automation readiness, shown above the transcript until ready.
-private struct StatusBanner: View {
-    @EnvironmentObject private var automation: AutomationSession
-    @Binding var showSetup: Bool
-
-    var body: some View {
-        switch automation.phase {
-        case .ready:
-            EmptyView()
-        case .idle:
-            banner("UI automation is off", systemImage: "hand.raised.slash", tint: .orange)
-        case .starting(let step):
-            banner(step, systemImage: "hourglass", tint: .blue)
-        case .failed(let message):
-            banner(message, systemImage: "exclamationmark.triangle", tint: .red)
-        }
-    }
-
-    private func banner(_ text: String, systemImage: String, tint: Color) -> some View {
-        Button { showSetup = true } label: {
-            Label(text, systemImage: systemImage)
-                .font(.footnote)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(tint.opacity(0.12))
-                .foregroundStyle(tint)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct EmptyState: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Try:").font(.headline)
-            ForEach([
-                "Open Maps and find the nearest coffee shop that's open now",
-                "In Safari, search tomorrow's weather in London and tell me",
-                "Create a note titled Groceries with milk, eggs and bread",
-            ], id: \.self) { Text("• \($0)").font(.subheadline).foregroundStyle(.secondary) }
-        }
-        .padding(.top, 40)
-    }
-}
-
-private struct EntryRow: View {
-    let entry: Entry
-    let view: ConversationView
-
-    var body: some View {
-        switch entry.message {
-        case .user(let message):
-            Bubble(text: message.text, isUser: true)
-        case .assistant(let message):
-            VStack(alignment: .leading, spacing: 6) {
-                if !message.text.isEmpty { Bubble(text: message.text, isUser: false) }
-                ForEach(message.toolCalls) { call in ToolCallRow(call: call, result: result(for: call)) }
-                if let error = message.errorMessage {
-                    Text(error).font(.caption).foregroundStyle(.red)
-                }
-            }
-        case .system, .toolResult, .other, nil:
-            EmptyView()
-        }
-    }
-
-    private func result(for call: ToolCall) -> ToolResultMessage? {
-        view.entries.lazy.compactMap(\.toolResult).first { $0.toolCallId == call.id }
-    }
-}
-
-private struct ToolCallRow: View {
-    let call: ToolCall
-    let result: ToolResultMessage?
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button { expanded.toggle() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: icon).frame(width: 18)
-                    Text(summary).lineLimit(1)
-                    Spacer()
-                    if let result {
-                        Image(systemName: result.isError ? "xmark.circle" : "checkmark.circle")
-                            .foregroundStyle(result.isError ? .red : .green)
-                    } else {
-                        ProgressView().controlSize(.mini)
+        ToolbarItem(placement: .principal) {
+            Button { showSetup = true } label: {
+                VStack(spacing: 1) {
+                    Text("Agent").font(.headline)
+                    HStack(spacing: 5) {
+                        StatusDot(color: model.isBusy ? .accentColor : automation.phase.tint, pulsing: automation.phase.isStarting || model.isBusy)
+                        Text(model.isBusy ? "Working" : automation.phase.title)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.opacity)
                     }
                 }
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
             }
             .buttonStyle(.plain)
-            if expanded, let result {
-                Text(result.text)
-                    .font(.caption2.monospaced())
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("Automation: \(automation.phase.title)")
+            .accessibilityHint("Opens setup")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("New task", systemImage: "square.and.pencil") {
+                Task { await model.newTask() }
             }
+            .disabled(model.transcript.isEmpty || model.isBusy)
         }
     }
 
-    private var summary: String {
-        let args = call.arguments.sorted { $0.key < $1.key }.map { key, value in
-            "\(key)=\(value.stringValue.map { "\"\($0)\"" } ?? value.description)"
+    private var bottomBar: some View {
+        VStack(spacing: 8) {
+            if let error = model.agentError {
+                ErrorBar(message: error) { model.dismissError() }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if !automation.isReady, !model.transcript.isEmpty {
+                AutomationBar(phase: automation.phase) { showSetup = true }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            Composer(
+                draft: $draft, focused: $inputFocused, isBusy: model.isBusy, isReady: automation.isReady,
+                onSend: send, onStop: { Task { await model.stop() } })
         }
-        return "\(call.name)(\(args.joined(separator: ", ")))"
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .animation(.snappy, value: model.agentError)
+        .animation(.snappy, value: automation.isReady)
     }
 
-    private var icon: String {
-        switch call.name {
-        case "view_screen": "eye"
-        case "screenshot": "camera"
-        case "tap", "long_press": "hand.tap"
-        case "type_text": "keyboard"
-        case "swipe": "hand.draw"
-        case "press_home": "house"
-        case "launch_app", "open_url": "arrow.up.forward.app"
-        case "wait": "clock"
-        default: "wrench"
+    private func send() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard automation.isReady else {
+            showSetup = true
+            return
+        }
+        draft = ""
+        sent += 1
+        Task { await model.send(text) }
+    }
+}
+
+// MARK: Transcript
+
+private struct TranscriptList: View {
+    let transcript: Transcript
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                ForEach(transcript.items) { item in
+                    TranscriptItemView(item: item).equatable()
+                }
+                RunStatusRow(status: transcript.status)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 20)
+            .animation(.snappy(duration: 0.3), value: transcript.status)
+        }
+        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        .scrollDismissesKeyboard(.interactively)
+    }
+}
+
+// MARK: Empty state
+
+private struct EmptyChatView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(AutomationSession.self) private var automation
+    @Binding var showSetup: Bool
+    @Binding var showSettings: Bool
+    let onPick: (String) -> Void
+
+    private static let suggestions: [(icon: String, tint: Color, text: String)] = [
+        ("map.fill", .green, "Open Maps and find the nearest coffee shop that's open now"),
+        ("safari.fill", .blue, "In Safari, look up tomorrow's weather in London and tell me"),
+        ("note.text", .yellow, "Create a note titled Groceries with milk, eggs and bread"),
+        ("checklist", .orange, "Remind me to call Mom tomorrow at 6 pm"),
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 28) {
+                VStack(spacing: 14) {
+                    AgentGlyph(size: 64)
+                        .shadow(color: Theme.brandEnd.opacity(0.35), radius: 18, y: 8)
+                    Text("What should I do?")
+                        .font(.title2.weight(.bold))
+                    Text("Describe a task. I'll open the apps and tap through them for you, then come back with the result.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+                .padding(.top, 36)
+
+                if let callout {
+                    callout
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Try asking")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
+                    ForEach(Self.suggestions, id: \.text) { suggestion in
+                        Button { onPick(suggestion.text) } label: {
+                            HStack(spacing: 12) {
+                                IconTile(systemImage: suggestion.icon, tint: suggestion.tint, size: 32)
+                                Text(suggestion.text)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 4)
+                                Image(systemName: "arrow.up.left")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(12)
+                            .background(Theme.cardFill, in: Theme.card)
+                            .contentShape(Theme.card)
+                        }
+                        .buttonStyle(PressableStyle())
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    /// The one thing standing between the user and a first run, if anything.
+    private var callout: SetupCallout? {
+        if model.isOpening { return nil }
+        if !model.hasAPIKey {
+            return SetupCallout(
+                icon: "key.fill", tint: .orange, title: "Add your model API key",
+                message: "The agent needs an Anthropic-compatible API key.", action: "Open Settings") { showSettings = true }
+        }
+        switch automation.phase {
+        case .ready:
+            return nil
+        case .starting(let step):
+            return SetupCallout(
+                icon: "hourglass", tint: .orange, title: "Starting automation…", message: step.title,
+                action: "View progress", progress: true) { showSetup = true }
+        case .failed(let message):
+            return SetupCallout(
+                icon: "exclamationmark.triangle.fill", tint: .red, title: "Automation stopped", message: message,
+                action: "Open Setup") { showSetup = true }
+        case .idle:
+            return SetupCallout(
+                icon: "hand.tap.fill", tint: .accentColor, title: "Turn on UI automation",
+                message: automation.pairingLoaded
+                    ? "Takes about a minute. Then the agent can tap and type in any app."
+                    : "Import your pairing files to get started.",
+                action: automation.pairingLoaded ? "Start" : "Set up") { showSetup = true }
         }
     }
 }
 
-private struct Bubble: View {
-    let text: String
-    let isUser: Bool
+private struct SetupCallout: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let message: String
+    let action: String
+    var progress = false
+    let perform: () -> Void
 
     var body: some View {
-        HStack {
-            if isUser { Spacer(minLength: 40) }
-            Text(LocalizedStringKey(text))
-                .textSelection(.enabled)
-                .padding(10)
-                .background(isUser ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 14))
-            if !isUser { Spacer(minLength: 40) }
+        Button(action: perform) {
+            HStack(spacing: 12) {
+                if progress {
+                    ProgressView().frame(width: 36, height: 36)
+                } else {
+                    IconTile(systemImage: icon, tint: tint, size: 36)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 4)
+                Text(action)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(tint.opacity(0.15), in: .capsule)
+                    .foregroundStyle(tint)
+            }
+            .padding(14)
+            .background(Theme.cardFill, in: Theme.card)
+            .overlay { Theme.card.strokeBorder(tint.opacity(0.25)) }
         }
+        .buttonStyle(PressableStyle())
+    }
+}
+
+/// Scales down slightly while pressed.
+struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+// MARK: Bottom bar
+
+private struct Composer: View {
+    @Binding var draft: String
+    var focused: FocusState<Bool>.Binding
+    let isBusy: Bool
+    let isReady: Bool
+    let onSend: () -> Void
+    let onStop: () -> Void
+
+    private var hasText: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var showsStop: Bool { isBusy && !hasText }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .lineLimit(1...6)
+                .focused(focused)
+                .padding(.leading, 16)
+                .padding(.vertical, 11)
+            Button(action: showsStop ? onStop : onSend) {
+                Image(systemName: showsStop ? "stop.fill" : "arrow.up")
+                    .font(.system(size: showsStop ? 14 : 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(buttonFill, in: .circle)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(PressableStyle())
+            .disabled(!showsStop && !hasText)
+            .padding(4)
+            .accessibilityLabel(showsStop ? "Stop" : "Send")
+        }
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22, style: .continuous))
+        .animation(.snappy(duration: 0.2), value: showsStop)
+        .animation(.snappy(duration: 0.2), value: hasText)
+    }
+
+    private var placeholder: String {
+        if isBusy { return "Add a follow-up…" }
+        return isReady ? "Ask the agent to do something…" : "Describe a task…"
+    }
+
+    private var buttonFill: AnyShapeStyle {
+        if showsStop { return AnyShapeStyle(Color.red.gradient) }
+        return hasText ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color.gray.opacity(0.35))
+    }
+}
+
+/// Automation isn't running: a compact glass bar above the composer that opens Setup.
+private struct AutomationBar: View {
+    let phase: AutomationSession.Phase
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if phase.isStarting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: phase.systemImage).foregroundStyle(phase.tint)
+                }
+                Text(message).font(.footnote.weight(.medium)).lineLimit(1)
+                Spacer(minLength: 4)
+                Text(phase.isStarting ? "View" : "Set up")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+    }
+
+    private var message: String {
+        switch phase {
+        case .starting(let step): step.title
+        case .failed(let message): message
+        default: "UI automation is off"
+        }
+    }
+}
+
+private struct ErrorBar: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+            Text(message).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+            Button("Dismiss", systemImage: "xmark", action: dismiss)
+                .labelStyle(.iconOnly)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .glassEffect(.regular.tint(.red.opacity(0.15)), in: .rect(cornerRadius: 16, style: .continuous))
     }
 }

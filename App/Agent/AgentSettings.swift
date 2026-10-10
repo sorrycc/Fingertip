@@ -24,6 +24,20 @@ struct AgentSettings: Codable, Equatable {
         if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.defaultsKey) }
     }
 
+    /// `blockedApps` as a list, for editing one app per row.
+    var blockedAppList: [String] {
+        get { blockedApps.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+        set { blockedApps = newValue.joined(separator: ", ") }
+    }
+
+    /// Why the model settings can't be used, if they can't.
+    var modelProblem: String? {
+        let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces))
+        if url?.scheme == nil || url?.host() == nil { return "Enter a full URL, like https://api.example.com/anthropic." }
+        if modelID.trimmingCharacters(in: .whitespaces).isEmpty { return "Enter a model name." }
+        return nil
+    }
+
     var agentConfig: AgentConfig? {
         guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces)), url.scheme != nil else { return nil }
         return AgentConfig(baseURL: url, modelID: modelID.trimmingCharacters(in: .whitespaces), supportsImages: supportsImages)
@@ -32,7 +46,7 @@ struct AgentSettings: Codable, Equatable {
     var safety: SafetyPolicy.Configuration {
         SafetyPolicy.Configuration(
             maxStepsPerRun: max(maxStepsPerRun, 1),
-            blockedApps: blockedApps.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+            blockedApps: blockedAppList)
     }
 }
 

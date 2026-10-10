@@ -24,7 +24,8 @@ App (SwiftUI chat) ── AgentCore ──────────────�
 |---|---|
 | `Packages/AgentCore` | Platform-neutral agent: model config, tools, screen formatter, safety, `SimulatedPhone`, `AgentCLI` |
 | `App/Automation` | `AutomationSession` (setup flow), `SelfRunnerDriver`, `DeviceAutomation` (AX snapshot + launch, ObjC) |
-| `App/Agent`, `App/UI` | App model, settings/Keychain, chat, setup, settings screens |
+| `App/Agent`, `App/UI` | App model, settings/Keychain, chat, setup, settings, log screens; `Theme.swift` holds the design tokens |
+| `Previews` | Simulator-only build of the UI with scripted data (`IPhoneAgentPreview` target) |
 | `vendor/TouchSynthesis` | Submodule; we compile its Lockdown/DTX/TestManager/TouchSynthesizer/idevice/Util/Model code |
 | `scripts/` | `install.sh` (build + install + pairing), `make-pairing.py` (export the Mac's pairing record) |
 
@@ -62,6 +63,22 @@ swift test
 DEEPSEEK_API_KEY=sk-… swift run AgentCLI "Find the cheapest flight from Dublin to London in SkyFares"
 # AGENT_MODEL, AGENT_BASE_URL, AGENT_DB=/tmp/agent.sqlite to test resume
 ```
+
+## Working on the UI
+
+The real app links device-only XCTest and idevice code, so the UI also builds as `IPhoneAgentPreview`, a
+simulator app backed by mock models (`Previews/Mocks.swift`) that plays a scripted run when you send a message:
+
+```bash
+xcodegen generate
+xcodebuild -scheme IPhoneAgentPreview -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/DerivedData build
+xcrun simctl install booted build/DerivedData/Build/Products/Debug-iphonesimulator/IPhoneAgentPreview.app
+xcrun simctl launch booted com.sorrycc.iphoneagent.preview -scenario working   # empty, setup, starting, working, done, failed, settings, log
+```
+
+The chat shows `Transcript` (AgentCore) rather than raw entries: tool calls are folded into one activity per request
+and described in plain words ("Tapped “Search Maps”", resolved from the screen the model saw). The app icon is
+rendered by `scripts/make-icon.swift`.
 
 ## Notes
 
