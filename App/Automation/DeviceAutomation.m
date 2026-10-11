@@ -11,6 +11,8 @@
 //   -[XCAXClient_iOS requestSnapshotForElement:attributes:parameters:error:]   @48@0:8@16@24@32^@40
 //   +[XCElementSnapshot axAttributesForElementSnapshotKeyPaths:isMacOS:]
 //   -[XCAXClient_iOS applicationProcessTracker] -applicationProcessWithPID: -bundleID
+//   -[XCAXClient_iOS accessibilityElementForElementAtPoint:error:]   (used as in iphone-use's runner, MIT)
+//   -[LSApplicationWorkspace allInstalledApplications] → LSApplicationProxy -applicationIdentifier -localizedName
 //   -[XCTRunnerDaemonSession launchApplicationWithPath:bundleID:arguments:environment:completion:]
 //       completion is ^(id|BOOL, NSError *) depending on version — only the NSError is read.
 //   -[XCTRunnerDaemonSession openDefaultApplicationForURL:completion:]  ^(BOOL, NSError *)
@@ -23,6 +25,13 @@ typedef id (*MsgSend_attrs)(id, SEL, id, BOOL);
 typedef BOOL (*MsgSend_bool_id)(id, SEL, id);
 typedef void (*MsgSend_launch)(id, SEL, id, id, id, id, id);
 typedef void (*MsgSend_open)(id, SEL, id, id);
+typedef id (*MsgSend_point)(id, SEL, CGPoint, NSError **);
+
+static NSString *const SpringBoardBundleID = @"com.apple.springboard";
+/// Presents the in-app Safari sheet over its host app; reads and taps belong to it while it shows.
+static NSString *const SafariViewServiceBundleID = @"com.apple.SafariViewService";
+/// XCUIElementTypeAlert.
+static const NSInteger AlertElementType = 7;
 
 static id Call(id target, NSString *selector) {
     SEL sel = NSSelectorFromString(selector);
@@ -60,17 +69,45 @@ static id KV(id object, NSString *key) {
 
 #pragma mark - Snapshot
 
-+ (nullable id)foregroundElement:(id)client {
++ (int)pidOf:(id)element {
+    return [KV(element, @"processIdentifier") intValue];
+}
+
+/// The app the user sees. Several apps can report active at once (the in-app Safari sheet's view service over its
+/// host, picture in picture, an app extension); then the one owning the screen centre is in front.
++ (nullable id)foregroundElement:(id)client probe:(CGPoint)probe {
     NSArray *apps = Call(client, @"activeApplications");
     id springboard = nil;
+    NSMutableArray *candidates = [NSMutableArray new];
     for (id element in apps) {
-        NSNumber *pid = KV(element, @"processIdentifier");
-        NSString *bundle = [self bundleIDForPID:pid.intValue client:client];
-        if ([bundle isEqualToString:@"com.apple.springboard"]) {
+        NSString *bundle = [self bundleIDForPID:[self pidOf:element] client:client];
+        if ([bundle isEqualToString:SpringBoardBundleID]) {
             springboard = element;
-            continue;
+        } else {
+            [candidates addObject:element];
         }
-        return element;
+    }
+    if (candidates.count == 1) return candidates.firstObject;
+    if (candidates.count > 1) {
+        SEL hitSel = NSSelectorFromString(@"accessibilityElementForElementAtPoint:error:");
+        if ([client respondsToSelector:hitSel]) {
+            id hit = nil;
+            @try {
+                NSError *error = nil;
+                hit = ((MsgSend_point)objc_msgSend)(client, hitSel, probe, &error);
+            } @catch (__unused NSException *e) {
+            }
+            int hitPID = [self pidOf:hit];
+            for (id element in candidates) {
+                if (hitPID > 0 && [self pidOf:element] == hitPID) return element;
+            }
+        }
+        for (id element in candidates) {
+            if ([[self bundleIDForPID:[self pidOf:element] client:client] isEqualToString:SafariViewServiceBundleID]) {
+                return element;
+            }
+        }
+        return candidates.firstObject;
     }
     return springboard ?: Call(client, @"systemApplication");
 }
@@ -88,22 +125,14 @@ static id KV(id object, NSString *key) {
     }
 }
 
-+ (nullable NSDictionary *)snapshotForegroundAppWithMaxDepth:(NSInteger)maxDepth error:(NSString **)outError {
-    @try {
-        id client = AXClient();
-        if (!client) {
-            if (outError) *outError = @"XCUIDevice.accessibilityInterface unavailable — is UI automation started?";
-            return nil;
-        }
-        id element = [self foregroundElement:client];
-        if (!element) {
-            if (outError) *outError = @"No active application found";
-            return nil;
-        }
-
+/// The snapshot attributes for our key paths, mapped once.
++ (id)snapshotAttributes {
+    static id attributes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
         NSArray *keyPaths = @[ @"identifier", @"value", @"label", @"frame", @"enabled", @"elementType",
                                @"placeholderValue", @"selected", @"hasFocus" ];
-        id attributes = keyPaths;
+        attributes = keyPaths;
         Class snapshotClass = NSClassFromString(@"XCElementSnapshot");
         SEL attrSel = NSSelectorFromString(@"axAttributesForElementSnapshotKeyPaths:isMacOS:");
         if ([snapshotClass respondsToSelector:attrSel]) {
@@ -111,32 +140,82 @@ static id KV(id object, NSString *key) {
             if ([converted isKindOfClass:[NSSet class]]) converted = [converted allObjects];
             if (converted) attributes = converted;
         }
+    });
+    return attributes;
+}
 
-        NSMutableDictionary *parameters = [Call(client, @"defaultParameters") mutableCopy] ?: [NSMutableDictionary new];
-        parameters[@"maxDepth"] = @(maxDepth);
+/// One accessibility snapshot of `element`, or nil with `error` set.
++ (nullable id)snapshotOf:(id)element client:(id)client maxDepth:(NSInteger)maxDepth error:(NSString **)outError {
+    NSMutableDictionary *parameters = [Call(client, @"defaultParameters") mutableCopy] ?: [NSMutableDictionary new];
+    parameters[@"maxDepth"] = @(maxDepth);
+    SEL snapSel = NSSelectorFromString(@"requestSnapshotForElement:attributes:parameters:error:");
+    if (![client respondsToSelector:snapSel]) {
+        if (outError) *outError = @"requestSnapshotForElement:attributes:parameters:error: not found";
+        return nil;
+    }
+    NSError *error = nil;
+    id result = ((MsgSend_snapshot)objc_msgSend)(client, snapSel, element, [self snapshotAttributes], parameters, &error);
+    if (!result) {
+        if (outError) *outError = error.localizedDescription ?: @"Snapshot returned nil";
+        return nil;
+    }
+    return Call(result, @"rootElementSnapshot") ?: result;
+}
 
-        SEL snapSel = NSSelectorFromString(@"requestSnapshotForElement:attributes:parameters:error:");
-        if (![client respondsToSelector:snapSel]) {
-            if (outError) *outError = @"requestSnapshotForElement:attributes:parameters:error: not found";
++ (nullable id)firstAlertIn:(id)snapshot depth:(NSInteger)depth {
+    if (!snapshot || depth > 80) return nil;
+    if ([KV(snapshot, @"elementType") integerValue] == AlertElementType) return snapshot;
+    for (id child in KV(snapshot, @"children")) {
+        id found = [self firstAlertIn:child depth:depth + 1];
+        if (found) return found;
+    }
+    return nil;
+}
+
+/// An alert SpringBoard shows over the foreground app (permission prompts, tel: confirmations). The app's own
+/// tree does not contain it, so without this the agent cannot see the alert that blocks every tap.
++ (nullable id)springBoardAlert:(id)client foregroundPID:(int)foregroundPID {
+    @try {
+        id springboard = Call(client, @"systemApplication");
+        if (!springboard || [self pidOf:springboard] == foregroundPID) return nil;
+        id root = [self snapshotOf:springboard client:client maxDepth:30 error:NULL];
+        return [self firstAlertIn:root depth:0];
+    } @catch (__unused NSException *e) {
+        return nil;
+    }
+}
+
++ (nullable NSDictionary *)snapshotForegroundAppWithMaxDepth:(NSInteger)maxDepth
+                                                  probePoint:(CGPoint)probe
+                                                       error:(NSString **)outError {
+    @try {
+        id client = AXClient();
+        if (!client) {
+            if (outError) *outError = @"XCUIDevice.accessibilityInterface unavailable — is UI automation started?";
             return nil;
         }
-        NSError *error = nil;
-        id result = ((MsgSend_snapshot)objc_msgSend)(client, snapSel, element, attributes, parameters, &error);
-        if (!result) {
-            if (outError) *outError = error.localizedDescription ?: @"Snapshot returned nil";
+        id element = [self foregroundElement:client probe:probe];
+        if (!element) {
+            if (outError) *outError = @"No active application found";
             return nil;
         }
-        id root = Call(result, @"rootElementSnapshot") ?: result;
+        id root = [self snapshotOf:element client:client maxDepth:maxDepth error:outError];
+        if (!root) return nil;
 
-        NSNumber *pid = KV(element, @"processIdentifier");
+        int pid = [self pidOf:element];
         NSMutableDictionary *app = [NSMutableDictionary new];
-        if (pid) app[@"pid"] = pid;
-        NSString *bundle = [self bundleIDForPID:pid.intValue client:client];
+        if (pid > 0) app[@"pid"] = @(pid);
+        NSString *bundle = [self bundleIDForPID:pid client:client];
         if (bundle) app[@"bundleID"] = bundle;
         NSString *name = StringOrNil(KV(root, @"label"));
         if (name) app[@"name"] = name;
 
-        return @{ @"app": app, @"root": [self dictionaryForSnapshot:root depth:0] };
+        NSMutableDictionary *result = [@{ @"app": app, @"root": [self dictionaryForSnapshot:root depth:0] } mutableCopy];
+        if (![self firstAlertIn:root depth:0]) {
+            id alert = [self springBoardAlert:client foregroundPID:pid];
+            if (alert) result[@"alert"] = [self dictionaryForSnapshot:alert depth:0];
+        }
+        return result;
     } @catch (NSException *e) {
         if (outError) *outError = [NSString stringWithFormat:@"Snapshot threw %@: %@", e.name, e.reason];
         return nil;
@@ -306,6 +385,25 @@ static id KV(id object, NSString *key) {
     return report;
 }
 
+#pragma mark - Installed apps
+
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)installedApplications {
+    NSMutableArray *apps = [NSMutableArray new];
+    @try {
+        id workspace = Call(NSClassFromString(@"LSApplicationWorkspace"), @"defaultWorkspace");
+        NSArray *proxies = Call(workspace, @"allInstalledApplications") ?: Call(workspace, @"allApplications");
+        for (id proxy in proxies) {
+            NSString *bundle = StringOrNil(Call(proxy, @"applicationIdentifier")) ?: StringOrNil(Call(proxy, @"bundleIdentifier"));
+            NSString *name = StringOrNil(Call(proxy, @"localizedName"));
+            NSArray *tags = Call(proxy, @"appTags");
+            if (!bundle || !name || ([tags isKindOfClass:[NSArray class]] && [tags containsObject:@"hidden"])) continue;
+            [apps addObject:@{ @"bundleID": bundle, @"name": name }];
+        }
+    } @catch (__unused NSException *e) {
+    }
+    return apps;
+}
+
 #pragma mark - Diagnostics
 
 + (NSString *)diagnostics {
@@ -313,7 +411,8 @@ static id KV(id object, NSString *key) {
     id client = AXClient();
     [out appendFormat:@"AX client: %@\n", client ? NSStringFromClass([client class]) : @"nil"];
     NSArray *selectors = @[ @"activeApplications", @"systemApplication", @"defaultParameters",
-                            @"requestSnapshotForElement:attributes:parameters:error:", @"applicationProcessTracker" ];
+                            @"requestSnapshotForElement:attributes:parameters:error:", @"applicationProcessTracker",
+                            @"accessibilityElementForElementAtPoint:error:" ];
     for (NSString *name in selectors) {
         [out appendFormat:@"  %@: %@\n", name, [client respondsToSelector:NSSelectorFromString(name)] ? @"yes" : @"NO"];
     }
@@ -323,7 +422,9 @@ static id KV(id object, NSString *key) {
                               @"openDefaultApplicationForURL:completion:" ]) {
         [out appendFormat:@"  %@: %@\n", name, [session respondsToSelector:NSSelectorFromString(name)] ? @"yes" : @"NO"];
     }
-    [out appendFormat:@"LSApplicationWorkspace: %@\n", NSClassFromString(@"LSApplicationWorkspace") ? @"yes" : @"NO"];
+    [out appendFormat:@"LSApplicationWorkspace: %@ (%lu installed apps listed)\n",
+                      NSClassFromString(@"LSApplicationWorkspace") ? @"yes" : @"NO",
+                      (unsigned long)[self installedApplications].count];
     @try {
         NSArray *apps = Call(client, @"activeApplications");
         for (id element in apps) {

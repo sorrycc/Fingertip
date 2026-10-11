@@ -95,9 +95,15 @@ public actor SimulatedPhone: DeviceDriver {
     public func typeText(_ text: String) async throws {
         log.append("type \(text.debugDescription)")
         guard let field = focusedField else { throw DriverError("No text field is focused; tap one first.") }
-        let clean = text.replacingOccurrences(of: "\n", with: "")
-        fields[field] = (fields[field] ?? "") + clean
-        if text.hasSuffix("\n") { focusedField = nil }
+        var value = fields[field] ?? ""
+        for character in text {
+            switch character {
+            case "\n": focusedField = nil
+            case "\u{7F}": if !value.isEmpty { value.removeLast() }
+            default: value.append(character)
+            }
+        }
+        fields[field] = value
     }
 
     public func pressHome() async throws {
@@ -113,6 +119,15 @@ public actor SimulatedPhone: DeviceDriver {
     }
 
     public func openURL(_ url: URL) async throws { log.append("open \(url)") }
+
+    public func installedApps() async -> [InstalledApp] {
+        [
+            InstalledApp(bundleID: app.bundleID ?? "", name: app.name ?? ""),
+            InstalledApp(bundleID: "com.apple.mobilesafari", name: "Safari"),
+            InstalledApp(bundleID: "com.apple.mobilenotes", name: "Notes"),
+            InstalledApp(bundleID: "com.apple.Preferences", name: "Settings"),
+        ]
+    }
 
     // MARK: Building blocks
 

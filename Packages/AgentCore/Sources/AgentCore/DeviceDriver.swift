@@ -16,6 +16,31 @@ public protocol DeviceDriver: Sendable {
     func pressHome() async throws
     func launchApp(bundleID: String) async throws
     func openURL(_ url: URL) async throws
+    /// Presses a key on the keyboard. Defaults to typing the key's character.
+    func pressKey(_ key: KeyboardKey) async throws
+    /// Apps installed on the device, for finding apps by name. Empty when the driver cannot list them.
+    func installedApps() async -> [InstalledApp]
+}
+
+extension DeviceDriver {
+    public func pressKey(_ key: KeyboardKey) async throws { try await typeText(key.character) }
+    public func installedApps() async -> [InstalledApp] { [] }
+}
+
+/// Keys the agent can press.
+public enum KeyboardKey: String, Sendable, CaseIterable {
+    case `return`, delete, tab, escape, space
+
+    /// The character XCTest types for the key (`XCUIKeyboardKey` raw values).
+    public var character: String {
+        switch self {
+        case .return: "\n"
+        case .delete: "\u{7F}"
+        case .tab: "\t"
+        case .escape: "\u{1B}"
+        case .space: " "
+        }
+    }
 }
 
 public struct DriverError: Error, LocalizedError, Sendable {

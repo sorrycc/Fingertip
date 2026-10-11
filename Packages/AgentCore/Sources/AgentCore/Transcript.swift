@@ -140,8 +140,9 @@ public final class TranscriptBuilder {
 
         var items: [Transcript.Item] = []
         var activity: Activity?
-        /// The latest result that ended on a screen. Its text is joined only when an uncached call needs it.
-        var screen: ToolResultMessage?
+        /// Recent results that ended on a screen, newest last. Actions often return only what changed, so an
+        /// element's label may be on an earlier screen. Their text is joined only when an uncached call needs it.
+        var screens: [ToolResultMessage] = []
         var running: Step?
 
         func close() {
@@ -171,12 +172,15 @@ public final class TranscriptBuilder {
                     if !text.isEmpty { activity?.entries.append(.note(id: entry.id.description, text: text)) }
                     for call in message.toolCalls {
                         let result = results[call.id]
-                        let step = describe(call, result: result, screen: screen, isBusy: isBusy)
+                        let step = describe(call, result: result, screens: screens, isBusy: isBusy)
                         if step.status == .running { running = step }
                         activity?.entries.append(.step(step))
                         if let result {
                             activity?.endedAt = result.timestamp
-                            if Self.showsScreen(result) { screen = result }
+                            if Self.showsScreen(result) {
+                                screens.append(result)
+                                if screens.count > 6 { screens.removeFirst() }
+                            }
                         }
                     }
                 }
@@ -217,9 +221,10 @@ public final class TranscriptBuilder {
         return Transcript(items: items, status: status)
     }
 
-    private func describe(_ call: ToolCall, result: ToolResultMessage?, screen: ToolResultMessage?, isBusy: Bool) -> Step {
+    private func describe(_ call: ToolCall, result: ToolResultMessage?, screens: [ToolResultMessage], isBusy: Bool) -> Step {
         if result != nil, let cached = finished[call.id] { return cached }
-        let description = StepDescriber.describe(call, result: result, screen: screen?.text)
+        let screen = screens.isEmpty ? nil : screens.reversed().map(\.text).joined(separator: "\n")
+        let description = StepDescriber.describe(call, result: result, screen: screen)
         guard let result else {
             return Step(id: call.id, tool: call.name, title: description.title, status: isBusy ? .running : .interrupted)
         }
@@ -259,23 +264,44 @@ enum StepDescriber {
         case "screenshot":
             return Description(title: "Took a screenshot")
         case "tap":
-            return Description(title: "Tapped \(target(args, screen: screen))", detail: app.map { "in \($0)" })
+            return Description(title: "Tapped \(target(args, result: result, screen: screen))", detail: app.map { "in \($0)" })
         case "long_press":
-            return Description(title: "Touched and held \(target(args, screen: screen))", detail: app.map { "in \($0)" })
+            return Description(title: "Touched and held \(target(args, result: result, screen: screen))", detail: app.map { "in \($0)" })
         case "type_text":
+            if result?.details?["secure"] == .bool(true) {
+                return Description(title: "Typed into a secure field", detail: app.map { "in \($0)" })
+            }
             var text = args["text"]?.stringValue ?? ""
             let submits = text.hasSuffix("\n")
             if submits { text.removeLast() }
             let typed = text.isEmpty ? "Pressed return" : "Typed \(quoted(text))"
             return Description(title: submits && !text.isEmpty ? "\(typed) and pressed return" : typed, detail: app.map { "in \($0)" })
+        case "press_key":
+            let key = args["key"]?.stringValue ?? "a key"
+            let count = args["count"]?.doubleValue.map(Int.init) ?? 1
+            return Description(title: "Pressed \(key)" + (count > 1 ? " ×\(count)" : ""), detail: app.map { "in \($0)" })
+        case "back":
+            return Description(title: "Went back", detail: app.map { "in \($0)" })
+        case "dismiss_keyboard":
+            return Description(title: "Hid the keyboard", detail: app.map { "in \($0)" })
+        case "answer_alert":
+            return Description(title: "Answered an alert: \(quoted(args["button"]?.stringValue ?? ""))")
+        case "find_app":
+            return Description(title: "Looked up \(quoted(args["name"]?.stringValue ?? "an app"))")
+        case "wait_for":
+            return Description(title: "Waited for the screen", detail: app.map { "in \($0)" })
+        case "run_steps":
+            let count = args["steps"]?.arrayValue?.count ?? 0
+            return Description(title: count == 1 ? "Ran 1 step" : "Ran \(count) steps", detail: app.map { "in \($0)" })
         case "swipe":
             let direction = args["direction"]?.stringValue
             return Description(title: direction.map { "Swiped \($0)" } ?? "Swiped", detail: app.map { "in \($0)" })
         case "press_home":
             return Description(title: "Went to the Home Screen")
         case "launch_app":
-            let bundleID = args["bundle_id"]?.stringValue ?? ""
-            return Description(title: "Opened \(knownApps[bundleID] ?? app ?? fallbackName(bundleID))")
+            let bundleID = args["bundle_id"]?.stringValue ?? result?.details?["bundle_id"]?.stringValue ?? ""
+            let name = knownApps[bundleID] ?? args["app"]?.stringValue ?? app ?? fallbackName(bundleID)
+            return Description(title: "Opened \(name)")
         case "open_url":
             let raw = args["url"]?.stringValue ?? ""
             let url = URL(string: raw)
@@ -290,7 +316,9 @@ enum StepDescriber {
     }
 
     /// `“Search”` for an element on the screen the model saw, else the coordinates.
-    static func target(_ args: JSONObject, screen: String?) -> String {
+    static func target(_ args: JSONObject, result: ToolResultMessage? = nil, screen: String?) -> String {
+        if let target = result?.details?["target"]?.stringValue { return quoted(target) }
+        if let label = args["label"]?.stringValue { return quoted(label) }
         if let number = args["element"]?.doubleValue.map(Int.init) {
             if let label = label(of: number, in: screen) { return label }
             return "element \(number)"

@@ -1,4 +1,5 @@
 import AgentCore
+import os
 import UIKit
 
 /// `DeviceDriver` on the real iPhone: XCTest touch synthesis (TouchSynthesis) plus XCTest accessibility snapshots.
@@ -6,6 +7,8 @@ import UIKit
 final class SelfRunnerDriver: DeviceDriver, @unchecked Sendable {
     let size: CGSize
     private let queue = DispatchQueue(label: "agent.automation", qos: .userInitiated)
+    /// The installed-app list, reread after ten minutes.
+    private let appCache = OSAllocatedUnfairLock<(apps: [InstalledApp], at: Date)?>(initialState: nil)
 
     @MainActor init() {
         size = UIScreen.main.bounds.size
@@ -16,9 +19,12 @@ final class SelfRunnerDriver: DeviceDriver, @unchecked Sendable {
     // MARK: Observation
 
     func snapshot() async throws -> ScreenSnapshot {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
         let dictionary: [String: Any] = try await onQueue {
             var error: NSString?
-            guard let result = DeviceAutomation.snapshotForegroundApp(withMaxDepth: 60, error: &error) as? [String: Any] else {
+            guard let result = DeviceAutomation.snapshotForegroundApp(withMaxDepth: 60, probePoint: center, error: &error)
+                as? [String: Any]
+            else {
                 throw DriverError("Accessibility snapshot failed: \(error as String? ?? "unknown error")")
             }
             return result
@@ -29,7 +35,8 @@ final class SelfRunnerDriver: DeviceDriver, @unchecked Sendable {
         let app = dictionary["app"] as? [String: Any] ?? [:]
         let info = AppInfo(
             bundleID: app["bundleID"] as? String, name: app["name"] as? String, pid: (app["pid"] as? NSNumber)?.int32Value)
-        return ScreenSnapshot(app: info, root: root)
+        let alert = (dictionary["alert"] as? [String: Any]).flatMap(UINode.init(dictionary:))
+        return ScreenSnapshot(app: info, root: root, alert: alert)
     }
 
     func screenshot() async throws -> Data {
@@ -83,6 +90,19 @@ final class SelfRunnerDriver: DeviceDriver, @unchecked Sendable {
             var path: NSString?
             if let error = DeviceAutomation.open(url, path: &path) { throw DriverError(error) }
         }
+    }
+
+    func installedApps() async -> [InstalledApp] {
+        if let cached = appCache.withLock({ $0 }), Date.now.timeIntervalSince(cached.at) < 600 { return cached.apps }
+        let apps = (try? await onQueue {
+            DeviceAutomation.installedApplications().compactMap { entry -> InstalledApp? in
+                guard let id = entry["bundleID"], let name = entry["name"] else { return nil }
+                return InstalledApp(bundleID: id, name: name)
+            }
+        }) ?? []
+        // An empty list means the system would not say; ask again next time rather than caching that.
+        if !apps.isEmpty { appCache.withLock { $0 = (apps, .now) } }
+        return apps
     }
 
     // MARK: Helpers

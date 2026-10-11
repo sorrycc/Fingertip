@@ -79,10 +79,13 @@ public struct AppInfo: Codable, Sendable, Hashable {
 public struct ScreenSnapshot: Sendable {
     public var app: AppInfo
     public var root: UINode
+    /// An alert owned by another process (SpringBoard's permission prompts), drawn over `app`.
+    public var alert: UINode?
 
-    public init(app: AppInfo, root: UINode) {
+    public init(app: AppInfo, root: UINode, alert: UINode? = nil) {
         self.app = app
         self.root = root
+        self.alert = alert
     }
 }
 
@@ -104,7 +107,8 @@ public enum ElementType {
     public static func name(_ raw: Int) -> String { names.indices.contains(raw) ? names[raw] : "Type\(raw)" }
 
     public static let other = 1, application = 2, window = 4, alert = 7, button = 9, keyboard = 19, key = 20
-    public static let navigationBar = 21, tabBar = 22, statusBar = 25, table = 26, collectionView = 32
+    public static let navigationBar = 21, tabBar = 22, toolbar = 24, statusBar = 25, table = 26, collectionView = 32
+    public static let slider = 33, progressIndicator = 35, activityIndicator = 36, switchControl = 40, link = 42
     public static let image = 43, icon = 44, searchField = 45, scrollView = 46, staticText = 48
     public static let textField = 49, secureTextField = 50, textView = 52, map = 57, webView = 58, cell = 75
 
@@ -114,6 +118,13 @@ public enum ElementType {
     ]
     /// Text-input types; their value matters and they accept `type_text`.
     static let textInput: Set<Int> = [45, 49, 50, 52]
+    /// Bars pinned over scrolling content.
+    static let bars: Set<Int> = [navigationBar, tabBar, toolbar]
+
+    /// The raw value for a type name ("Button", "cell"), for `kind` filters.
+    static func type(named name: String) -> Int? {
+        names.firstIndex { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
 }
 
 extension Optional where Wrapped == String {

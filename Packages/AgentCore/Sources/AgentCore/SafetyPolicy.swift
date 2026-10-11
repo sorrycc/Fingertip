@@ -81,9 +81,16 @@ public final class SafetyPolicy: Sendable {
     }
 
     func checkLaunch(_ tool: String, arguments: JSONObject) -> Verdict {
-        guard tool == "launch_app", let id = arguments["bundle_id"]?.stringValue?.lowercased() else { return .allow }
+        guard tool == "launch_app", let id = arguments["bundle_id"]?.stringValue else { return .allow }
+        return launchVerdict(bundleID: id, name: nil)
+    }
+
+    /// Whether opening this app is allowed; `launch_app` by name checks the app it resolved to.
+    func launchVerdict(bundleID: String, name: String?) -> Verdict {
         let blocked = configuration.blockedApps.map { $0.lowercased() }
-        return blocked.contains(id) ? .block("Opening \(id) is blocked by the user's safety settings.") : .allow
+        let names = [bundleID, name, AppLookup.name(forBundleID: bundleID)].compactMap { $0?.lowercased() }
+        return names.contains(where: blocked.contains)
+            ? .block("Opening \(name ?? bundleID) is blocked by the user's safety settings.") : .allow
     }
 
     var hook: Hook {

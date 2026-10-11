@@ -9,8 +9,9 @@ Personal, sideloaded use only: it relies on XCTest private API and an unlicensed
 
 ```
 App (SwiftUI chat) ── AgentCore ──────────────── PiDurableKit (JSCore, SQLite) ── model API
-                       │ tools: view_screen, screenshot, tap, type_text, swipe,
-                       │        long_press, press_home, launch_app, open_url, wait
+                       │ tools: view_screen, screenshot, tap, long_press, type_text, press_key, swipe,
+                       │        back, dismiss_keyboard, answer_alert, press_home, find_app, launch_app,
+                       │        open_url, wait, wait_for, run_steps
                        │ SafetyPolicy hook: step budget, stop switch, blocked apps
                        ▼
                  SelfRunnerDriver ── DeviceAutomation.m   XCAXClient_iOS accessibility snapshots, app launch
@@ -84,6 +85,12 @@ rendered by `scripts/make-icon.swift`.
 
 - **Perception**: accessibility tree first (numbered elements, cheap, precise). The formatter flags screens with
   few elements (web views, maps, games) and the model then calls `screenshot`, scaled so pixels = tap points.
+  SpringBoard's alerts are read alongside the foreground app. Element numbers stay stable within an app, so after an
+  action the model gets only what changed; actions wait until two reads match instead of a fixed delay, and say when
+  the screen did not change or another app came to the front.
+- **Taps**: an element whose centre is under a bar, the floating search pill, the keyboard, or an alert is tapped
+  where it is uncovered, or refused with what covers it (adapted from
+  [iphone-use](https://github.com/leeguooooo/iphone-use), MIT, as is the app-name catalog behind `launch_app`).
 - **Durability**: every turn and tool call is committed to SQLite before it runs. If iOS kills the app, reopening
   resumes; observation tools replay, actions come back to the model as `interrupted`.
 - **Safety defaults**: 60 actions per request, Wallet/Health/Passwords blocked, tel/sms/facetime links blocked, the
