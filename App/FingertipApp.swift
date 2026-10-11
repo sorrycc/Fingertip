@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct IPhoneAgentApp: App {
+struct FingertipApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {

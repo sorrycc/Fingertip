@@ -10,7 +10,7 @@ enum LocalNetworkPermission {
 
     /// Browses for our own advertised service; finding it means access is allowed. Shows the prompt on first use.
     static func request(timeout: Duration = .seconds(30)) async -> Status {
-        let service = "_iphoneagent._tcp"
+        let service = "_fingertip._tcp"
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
 

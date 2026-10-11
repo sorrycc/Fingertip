@@ -38,7 +38,7 @@ final class AppModel {
             try FileManager.default.createDirectory(at: .applicationSupportDirectory, withIntermediateDirectories: true)
             let host = try await AgentHost.open(
                 config: config, apiKey: apiKey, storage: storage, driver: driver, safety: settings.safety,
-                credentials: KeychainCredentialStore.keychain(service: "com.sorrycc.iphoneagent.models"),
+                credentials: KeychainCredentialStore.keychain(service: "com.sorrycc.fingertip.models"),
                 onReport: { message in print("[pi-durable] \(message)") })
             self.host = host
             self.driver = driver

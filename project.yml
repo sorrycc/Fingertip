@@ -1,4 +1,4 @@
-name: IPhoneAgent
+name: Fingertip
 options:
   bundleIdPrefix: com.sorrycc
   deploymentTarget:
@@ -11,7 +11,7 @@ packages:
   AgentCore:
     path: Packages/AgentCore
 targets:
-  IPhoneAgent:
+  Fingertip:
     type: application
     platform: iOS
     sources:
@@ -30,14 +30,14 @@ targets:
       - package: AgentCore
     settings:
       base:
-        PRODUCT_NAME: IPhoneAgent
-        PRODUCT_BUNDLE_IDENTIFIER: com.sorrycc.iphoneagent
+        PRODUCT_NAME: Fingertip
+        PRODUCT_BUNDLE_IDENTIFIER: com.sorrycc.fingertip
         INFOPLIST_FILE: App/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: App/Resources/IPhoneAgent.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Fingertip.entitlements
         CODE_SIGN_STYLE: Automatic
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
-        SWIFT_OBJC_BRIDGING_HEADER: App/Resources/IPhoneAgent-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: App/Resources/Fingertip-Bridging-Header.h
         LIBRARY_SEARCH_PATHS:
           - "$(PROJECT_DIR)/build/idevice"
         HEADER_SEARCH_PATHS:
@@ -62,8 +62,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
   # Simulator-only UI build with scripted data (Previews/Mocks.swift), for design work without a phone:
-  #   xcodebuild -scheme IPhoneAgentPreview -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
-  IPhoneAgentPreview:
+  #   xcodebuild -scheme FingertipPreview -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+  FingertipPreview:
     type: application
     platform: iOS
     sources:
@@ -78,12 +78,12 @@ targets:
     info:
       path: build/PreviewInfo.plist
       properties:
-        CFBundleDisplayName: Agent Preview
+        CFBundleDisplayName: Fingertip Preview
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sorrycc.iphoneagent.preview
+        PRODUCT_BUNDLE_IDENTIFIER: com.sorrycc.fingertip.preview
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGNING_ALLOWED: NO

@@ -1,4 +1,4 @@
-# iphone-agent
+# Fingertip
 
 An AI agent that runs on the iPhone and operates other apps through their UI. You ask in a chat, and it reads the
 screen, taps, types, and switches apps until the task is done. After the one-time setup, no Mac is involved.
@@ -34,7 +34,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 ## Quick start
 
 ```bash
-git clone --recursive <repo-url> && cd iphone-agent
+git clone --recursive <repo-url> && cd fingertip
 cp Config/Secrets.xcconfig.example Config/Secrets.xcconfig
 # Edit Config/Secrets.xcconfig: set AGENT_API_KEY and DEVELOPMENT_TEAM
 scripts/install.sh   # builds idevice, builds and installs the app, pushes the pairing record
@@ -45,7 +45,7 @@ The Developer Disk Image must be mounted. Connect the iPhone to Xcode once after
 Then, on the iPhone:
 
 1. Turn on LocalDevVPN.
-2. Open **Agent**, tap the hand icon, and choose **Start UI automation**. Enter your passcode when prompted.
+2. Open **Fingertip**, tap the hand icon, and choose **Start UI automation**. Enter your passcode when prompted.
    When setup finishes (about a minute), the "Automation Running" overlay appears.
 3. Allow location access **Always**. This keeps the agent running in the background.
 4. Send a request, for example: "Open Maps and find the nearest coffee shop that's open now."
@@ -65,7 +65,7 @@ DEEPSEEK_API_KEY=sk-... swift run AgentCLI "Find the cheapest flight from Dublin
 
 `AGENT_MODEL` and `AGENT_BASE_URL` override the model. Set `AGENT_DB` to a file path to test resuming a run.
 
-To work on the UI in the Simulator, run `xcodegen generate` and build the `IPhoneAgentPreview` scheme. This build
+To work on the UI in the Simulator, run `xcodegen generate` and build the `FingertipPreview` scheme. This build
 uses mock data from `Previews/Mocks.swift`. Launch it with `-scenario <name>` to open a specific state: `empty`,
 `setup`, `starting`, `working`, `done`, `failed`, `settings`, or `log`.
 

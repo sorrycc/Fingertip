@@ -64,7 +64,7 @@ struct AnswerView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Agent")
+        .accessibilityLabel("Fingertip")
     }
 }
 

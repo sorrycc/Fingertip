@@ -86,7 +86,7 @@ static NSString *CreateRPTunnel(NSString *pairingPath, NSString *deviceIP, uint1
         return @"Invalid device IP address";
     }
 
-    err = tunnel_create_rppairing((const idevice_sockaddr *)&addr, (idevice_socklen_t)sizeof(addr), "iphone-agent",
+    err = tunnel_create_rppairing((const idevice_sockaddr *)&addr, (idevice_socklen_t)sizeof(addr), "fingertip",
                                   pairing, NULL, NULL, outAdapter, outHandshake);
     rp_pairing_file_free(pairing);
     if (err != NULL) {

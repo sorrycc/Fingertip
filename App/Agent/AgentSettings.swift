@@ -53,7 +53,7 @@ struct AgentSettings: Codable, Equatable {
 /// The model API key, in the Keychain. On first launch it is seeded from the build setting `AGENT_API_KEY`
 /// (Config/Secrets.xcconfig → Info.plist `AgentDefaultAPIKey`), so a fresh install works without typing it.
 enum APIKeyStore {
-    private static let service = "com.sorrycc.iphoneagent.apikey"
+    private static let service = "com.sorrycc.fingertip.apikey"
 
     static var key: String? {
         get {

@@ -43,7 +43,7 @@ struct ChatView: View {
         ToolbarItem(placement: .principal) {
             Button { showSetup = true } label: {
                 VStack(spacing: 1) {
-                    Text("Agent").font(.headline)
+                    Text("Fingertip").font(.headline)
                     HStack(spacing: 5) {
                         StatusDot(color: model.isBusy ? .accentColor : automation.phase.tint, pulsing: automation.phase.isStarting || model.isBusy)
                         Text(model.isBusy ? "Working" : automation.phase.title)

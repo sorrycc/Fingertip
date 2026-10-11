@@ -19,7 +19,7 @@ SOCKET = "/var/run/usbmuxd"
 
 
 def request(payload: dict) -> dict:
-    body = plistlib.dumps({"ClientVersionString": "iphone-agent", "ProgName": "make-pairing", **payload})
+    body = plistlib.dumps({"ClientVersionString": "fingertip", "ProgName": "make-pairing", **payload})
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.connect(SOCKET)
         # usbmuxd header: total length, version 1, message 8 (plist), tag.
