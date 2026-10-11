@@ -1,98 +1,99 @@
 # iphone-agent
 
-An agent that runs **on the iPhone** and operates any app's UI: a durable agent loop
-([PiDurableKit](https://github.com/finnvoor/PiDurableKit), pi-durable on JavaScriptCore), a cloud model
-(DeepSeek's Anthropic-compatible API by default), and XCTest as the finger
-([TouchSynthesis](https://github.com/willfaust/TouchSynthesis)-style self-runner). No Mac in the loop after setup.
+An AI agent that runs on the iPhone and operates other apps through their UI. You ask in a chat, and it reads the
+screen, taps, types, and switches apps until the task is done. After the one-time setup, no Mac is involved.
 
-Personal, sideloaded use only: it relies on XCTest private API and an unlicensed submodule.
+> [!WARNING]
+> This project uses private XCTest APIs and must be sideloaded. It is intended for personal use and cannot be
+> distributed through the App Store.
+
+## How it works
 
 ```
-App (SwiftUI chat) ── AgentCore ──────────────── PiDurableKit (JSCore, SQLite) ── model API
-                       │ tools: view_screen, screenshot, tap, long_press, type_text, press_key, swipe,
-                       │        back, dismiss_keyboard, answer_alert, press_home, find_app, launch_app,
-                       │        open_url, wait, wait_for, run_steps
-                       │ SafetyPolicy hook: step budget, stop switch, blocked apps
-                       ▼
-                 SelfRunnerDriver ── DeviceAutomation.m   XCAXClient_iOS accessibility snapshots, app launch
-                                  └─ TouchSynthesizer.m   XCSynthesizedEventRecord touches/typing, screenshots
-                 AutomationSession: LocalDevVPN loopback → lockdownd → idevice tunnel → testmanagerd DTX → XCTest
+Chat UI ── AgentCore (agent loop, tools, safety) ── model API
+              │
+              ▼
+        SelfRunnerDriver ── XCTest (accessibility snapshots, synthesized touches)
 ```
 
-## Layout
+- **Agent loop**: a durable loop on [PiDurableKit](https://github.com/finnvoor/PiDurableKit), with state stored in
+  SQLite. If iOS kills the app, the run resumes when you reopen it.
+- **Model**: any Anthropic-compatible API. DeepSeek is the default.
+- **Device control**: an on-device XCTest runner based on [TouchSynthesis](https://github.com/willfaust/TouchSynthesis).
+- **Safety**: an action budget per request, a stop button, and blocked apps and URL schemes. All are configurable.
 
-| Path | What |
-|---|---|
-| `Packages/AgentCore` | Platform-neutral agent: model config, tools, screen formatter, safety, `SimulatedPhone`, `AgentCLI` |
-| `App/Automation` | `AutomationSession` (setup flow), `SelfRunnerDriver`, `DeviceAutomation` (AX snapshot + launch, ObjC) |
-| `App/Agent`, `App/UI` | App model, settings/Keychain, chat, setup, settings, log screens; `Theme.swift` holds the design tokens |
-| `Previews` | Simulator-only build of the UI with scripted data (`IPhoneAgentPreview` target) |
-| `vendor/TouchSynthesis` | Submodule; we compile its Lockdown/DTX/TestManager/TouchSynthesizer/idevice/Util/Model code |
-| `scripts/` | `install.sh` (build + install + pairing), `make-pairing.py` (export the Mac's pairing record) |
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
 ## Requirements
 
-- iPhone on iOS 26 with Developer Mode on; Mac with Xcode 26, XcodeGen, Rust (`rustup target add aarch64-apple-ios`)
-- Xcode signed in to the Apple Developer team in `Config/Base.xcconfig` (`KU8S35TEW8`)
-- LocalDevVPN (App Store) on the phone
-- Developer Disk Image mounted: connect to the Mac with Xcode once after each reboot (or use StikDebug)
+- iPhone on iOS 26 with Developer Mode enabled
+- LocalDevVPN (from the App Store) installed on the iPhone
+- Mac with Xcode 26, [XcodeGen](https://github.com/yonaskolb/XcodeGen), and Rust
+- An Apple Developer team for code signing
 
-## Setup
+## Quick start
 
 ```bash
-git clone --recursive … && cd iphone-agent
-cp Config/Secrets.xcconfig.example Config/Secrets.xcconfig   # put AGENT_API_KEY in it (or paste it in the app)
-scripts/install.sh            # builds idevice if needed, builds + installs the app, pushes the pairing record
+git clone --recursive <repo-url> && cd iphone-agent
+cp Config/Secrets.xcconfig.example Config/Secrets.xcconfig
+# Edit Config/Secrets.xcconfig: set AGENT_API_KEY and DEVELOPMENT_TEAM
+scripts/install.sh   # builds idevice, builds and installs the app, pushes the pairing record
 ```
 
-On the phone:
+The Developer Disk Image must be mounted. Connect the iPhone to Xcode once after each reboot.
+
+Then, on the iPhone:
+
 1. Turn on LocalDevVPN.
-2. Open **Agent** → hand icon (Setup) → **Start UI automation**. Wait about a minute, enter the passcode;
-   the "Automation Running" overlay appears. Allow location **Always** (keeps the agent alive in the background).
-3. Back in the chat, ask for something: *"Open Maps and find the nearest coffee shop that's open now."*
+2. Open **Agent**, tap the hand icon, and choose **Start UI automation**. Enter your passcode when prompted.
+   When setup finishes (about a minute), the "Automation Running" overlay appears.
+3. Allow location access **Always**. This keeps the agent running in the background.
+4. Send a request, for example: "Open Maps and find the nearest coffee shop that's open now."
 
-The agent works in other apps, then comes back to the chat with the answer. Tap ■ to stop; hold both volume
-buttons to kill automation from anywhere.
+To stop a run, tap the stop button. To end automation from any app, hold both volume buttons.
 
-## Developing off-device
+## Development
 
-The agent loop, tools, and safety hooks run on macOS against a scripted fake phone:
+The agent loop, tools, and safety policy are in a platform-neutral Swift package. You can test them on macOS
+against a simulated phone:
 
 ```bash
 cd Packages/AgentCore
 swift test
-DEEPSEEK_API_KEY=sk-… swift run AgentCLI "Find the cheapest flight from Dublin to London in SkyFares"
-# AGENT_MODEL, AGENT_BASE_URL, AGENT_DB=/tmp/agent.sqlite to test resume
+DEEPSEEK_API_KEY=sk-... swift run AgentCLI "Find the cheapest flight from Dublin to London in SkyFares"
 ```
 
-## Working on the UI
+`AGENT_MODEL` and `AGENT_BASE_URL` override the model. Set `AGENT_DB` to a file path to test resuming a run.
 
-The real app links device-only XCTest and idevice code, so the UI also builds as `IPhoneAgentPreview`, a
-simulator app backed by mock models (`Previews/Mocks.swift`) that plays a scripted run when you send a message:
+To work on the UI in the Simulator, run `xcodegen generate` and build the `IPhoneAgentPreview` scheme. This build
+uses mock data from `Previews/Mocks.swift`. Launch it with `-scenario <name>` to open a specific state: `empty`,
+`setup`, `starting`, `working`, `done`, `failed`, `settings`, or `log`.
 
-```bash
-xcodegen generate
-xcodebuild -scheme IPhoneAgentPreview -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/DerivedData build
-xcrun simctl install booted build/DerivedData/Build/Products/Debug-iphonesimulator/IPhoneAgentPreview.app
-xcrun simctl launch booted com.sorrycc.iphoneagent.preview -scenario working   # empty, setup, starting, working, done, failed, settings, log
-```
+## Project layout
 
-The chat shows `Transcript` (AgentCore) rather than raw entries: tool calls are folded into one activity per request
-and described in plain words ("Tapped “Search Maps”", resolved from the screen the model saw). The app icon is
-rendered by `scripts/make-icon.swift`.
+| Path | Contents |
+|---|---|
+| `Packages/AgentCore` | Agent loop, tools, screen formatter, safety policy, simulated phone, `AgentCLI` |
+| `App/Automation` | Automation setup, XCTest driver, accessibility snapshots |
+| `App/Agent`, `App/UI` | App state, settings and Keychain, SwiftUI screens |
+| `Previews` | Simulator-only UI build with mock data |
+| `vendor/TouchSynthesis`, `vendor/idevice` | Git submodules for device communication and touch synthesis |
+| `scripts` | Install, pairing, idevice build, log retrieval, icon generation |
 
-## Notes
+## Security
 
-- **Perception**: accessibility tree first (numbered elements, cheap, precise). The formatter flags screens with
-  few elements (web views, maps, games) and the model then calls `screenshot`, scaled so pixels = tap points.
-  SpringBoard's alerts are read alongside the foreground app. Element numbers stay stable within an app, so after an
-  action the model gets only what changed; actions wait until two reads match instead of a fixed delay, and say when
-  the screen did not change or another app came to the front.
-- **Taps**: an element whose centre is under a bar, the floating search pill, the keyboard, or an alert is tapped
-  where it is uncovered, or refused with what covers it (adapted from
-  [iphone-use](https://github.com/leeguooooo/iphone-use), MIT, as is the app-name catalog behind `launch_app`).
-- **Durability**: every turn and tool call is committed to SQLite before it runs. If iOS kills the app, reopening
-  resumes; observation tools replay, actions come back to the model as `interrupted`.
-- **Safety defaults**: 60 actions per request, Wallet/Health/Passwords blocked, tel/sms/facetime links blocked, the
-  prompt forbids purchases, sends, and typing secrets unless explicitly asked. Configure in Settings.
-- The pairing record grants full device access over the network. Keep it private.
+`scripts/install.sh` copies the Mac's pairing record to the iPhone. This record grants full device access over the
+network. Do not share it, and do not commit it to source control.
+
+## Acknowledgements
+
+- [PiDurableKit](https://github.com/finnvoor/PiDurableKit): durable agent runtime
+- [TouchSynthesis](https://github.com/willfaust/TouchSynthesis): XCTest self-runner and touch synthesis
+- [idevice](https://github.com/jkcoxson/idevice): lockdown and device tunneling
+- [iphone-use](https://github.com/leeguooooo/iphone-use) (MIT): tap-occlusion handling and the app-name catalog
+
+## License
+
+[MIT](LICENSE) © chencheng
+
+TouchSynthesis has no license. Review its terms before redistributing builds.
