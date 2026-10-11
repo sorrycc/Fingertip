@@ -126,6 +126,16 @@ extension ToolResult {
         #expect(rendered.keyboardFrame == CGRect(x: 0, y: 500, width: 400, height: 300))
     }
 
+    @Test func findsAKeyboardWithoutAKeyboardElement() {
+        let rendered = formatter.render(app([
+            node(ElementType.searchField, "Search Actions", 20, 80, 320, 40),
+            node(ElementType.other, nil, 0, 500, 400, 260, id: "inputView"),
+            node(ElementType.button, "Dictate", 340, 760, 40, 40, id: "dictation"),
+        ]))
+        #expect(rendered.header.contains("keyboard: up"))
+        #expect(rendered.keyboardFrame == CGRect(x: 0, y: 500, width: 400, height: 300))
+    }
+
     @Test func deltaListsOnlyChanges() {
         let before = formatter.render(app([
             node(ElementType.textField, "To", 0, 100, 400, 40),
@@ -165,6 +175,14 @@ extension ToolResult {
             node(ElementType.cell, "Hidden row", 0, 20, 400, 60),
         ]))
         #expect(TapPlanner.plan(1, in: screen) == .covered(by: "NavigationBar “Title”"))
+    }
+
+    @Test func anActiveSearchFieldIsOnTopOfTheNavigationBar() {
+        let screen = formatter.render(app([
+            node(ElementType.navigationBar, "New Shortcut", 0, 50, 400, 70),
+            node(ElementType.searchField, "Search Actions", 20, 80, 320, 40),
+        ]))
+        #expect(TapPlanner.plan(1, in: screen) == .center(CGPoint(x: 180, y: 100)))
     }
 
     @Test func barItemsAreOnTopOfContent() {

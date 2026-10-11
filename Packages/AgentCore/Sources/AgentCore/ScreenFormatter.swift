@@ -93,6 +93,7 @@ public struct ScreenFormatter: Sendable {
         var truncated = false
         var opaqueArea: CGFloat = 0
         var keyboardFrame: CGRect?
+        var keyboardHints: CGRect?
         var loading = false
         var alert: AlertInfo?
         var walkingSystemAlert = false
@@ -118,6 +119,10 @@ public struct ScreenFormatter: Sendable {
                     node: node, visible: box, depth: display, actionable: false, layout: index,
                     special: "Keyboard (visible; use type_text and press_key instead of tapping keys)"))
                 return
+            }
+            // Some apps (Shortcuts' action search) host the keyboard in a plain input view with no Keyboard element.
+            if Self.keyboardHintIDs.contains(node.identifier ?? ""), box.width > 0 {
+                keyboardHints = keyboardHints.map { $0.union(box) } ?? box
             }
             if node.type == ElementType.webView || node.type == ElementType.map { opaqueArea += box.width * box.height }
             if node.type == ElementType.activityIndicator, box.width > 0 { loading = true }
@@ -157,6 +162,7 @@ public struct ScreenFormatter: Sendable {
             walkingSystemAlert = false
         }
         for child in snapshot.root.children { walk(child, depth: 1, display: 0, inAlert: false, owner: nil) }
+        if keyboardFrame == nil { keyboardFrame = keyboardHints }
 
         // Numbers: keep the previous screen's number for the same element, else a fresh one.
         let reuse = previous.flatMap { $0.app.sameApp(as: snapshot.app) ? $0 : nil }
@@ -299,6 +305,9 @@ public struct ScreenFormatter: Sendable {
     static func isSymbolName(_ label: String) -> Bool {
         label.contains(".") && label.allSatisfy { ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "." }
     }
+
+    /// Identifiers of a keyboard's own parts: its input view and its dictation key.
+    static let keyboardHintIDs: Set<String> = ["inputView", "dictation"]
 
     /// Auto-generated identifiers (UUIDs, long dotted paths) name nothing the model can use.
     static func isGeneratedID(_ identifier: String) -> Bool {

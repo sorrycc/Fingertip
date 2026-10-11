@@ -119,6 +119,8 @@ enum TapPlanner {
         // A much bigger sibling (a bar-wide title button) is drawn under the small control at its edge.
         let area = { (rect: CGRect) in rect.width * rect.height }
         if !isFloating(row), sameParent, area(row.frame) > 2 * area(target.frame) { return false }
+        // An active search field moves up into the navigation bar and is drawn over it.
+        if target.type == ElementType.searchField, ElementType.bars.contains(row.type) { return false }
         // Floating glass is drawn over content, never under it.
         if isFloating(target), !isFloating(row) { return false }
         if isBarItem(index, nodes) {
