@@ -13,6 +13,7 @@ struct ChatView: View {
     var body: some View {
         NavigationStack {
             content
+                .safeAreaInset(edge: .top, spacing: 0) { topBar }
                 .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
                 .background(Color(.systemBackground))
                 .navigationBarTitleDisplayMode(.inline)
@@ -22,6 +23,7 @@ struct ChatView: View {
                 .onAppear { if !automation.pairingLoaded { showSetup = true } }
                 .sensoryFeedback(.impact(weight: .light), trigger: sent)
                 .sensoryFeedback(trigger: model.isBusy) { wasBusy, isBusy in wasBusy && !isBusy ? .success : nil }
+                .animation(.snappy, value: model.run == nil)
         }
     }
 
@@ -79,6 +81,20 @@ struct ChatView: View {
         }
     }
 
+    @ViewBuilder private var topBar: some View {
+        if let run = model.run {
+            AgentStatusBar(
+                run: run, prompt: model.pendingPrompt,
+                onAnswer: { reply in
+                    if let prompt = model.pendingPrompt { model.answer(prompt.id, reply) }
+                },
+                onStop: { Task { await model.stop() } })
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
     private var bottomBar: some View {
         VStack(spacing: 8) {
             if let error = model.agentError {
@@ -91,6 +107,7 @@ struct ChatView: View {
             }
             Composer(
                 draft: $draft, focused: $inputFocused, isBusy: model.isBusy, isReady: automation.isReady,
+                isAnswering: model.pendingPrompt?.allowsText == true,
                 onSend: send, onStop: { Task { await model.stop() } })
         }
         .padding(.horizontal, 12)
@@ -102,7 +119,7 @@ struct ChatView: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        guard automation.isReady else {
+        guard automation.isReady || model.pendingPrompt?.allowsText == true else {
             showSetup = true
             return
         }
@@ -309,6 +326,8 @@ private struct Composer: View {
     var focused: FocusState<Bool>.Binding
     let isBusy: Bool
     let isReady: Bool
+    /// The agent waits on a question, and a message answers it.
+    let isAnswering: Bool
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -341,6 +360,7 @@ private struct Composer: View {
     }
 
     private var placeholder: String {
+        if isAnswering { return "Answer the agent…" }
         if isBusy { return "Add a follow-up…" }
         return isReady ? "Ask the agent to do something…" : "Describe a task…"
     }

@@ -77,6 +77,8 @@ public enum ComputerUse {
     public static let extensionName = "computer-use"
     /// Left out of the agent's tools while the selected model doesn't accept images.
     public static let screenshotTool = "screenshot"
+    /// Waits for the user's reply; the transcript shows it as a question.
+    public static let askUserTool = "ask_user"
     /// Tools that change the device; the safety policy counts and gates these. `run_steps` checks each of its
     /// steps itself.
     public static let actionTools: Set<String> = [
@@ -111,6 +113,7 @@ public enum ComputerUse {
             tools.wait
             tools.waitFor
             tools.runSteps
+            tools.askUser
             policy.hook
         }
     }
@@ -154,11 +157,20 @@ public enum ComputerUse {
         - Keep going until the task is done, then reply to the user with the answer in plain text. Only say it is \
         done when the screen shows that every part of it is done. Do not ask the user to confirm routine steps.
 
+        Asking the user:
+        - `ask_user` pauses and waits for the user's reply. Use it right before a step that can't be undone (the final \
+        Send, Pay, Book, Delete, or Post button), when the request is ambiguous and a wrong guess would waste work, \
+        or for information only the user has. Say exactly what you are about to do, e.g. "Send “See you at 7” to \
+        Alex?" with options ["Send", "Cancel"].
+        - If the user declines, do not do it another way; stop and summarize. If a reply changes the task, follow it.
+
         Safety:
         - Never complete purchases, payments, bookings, transfers, or send messages/emails/posts unless the user \
-        explicitly asked for exactly that. Stop before the final confirm button and report back instead.
+        explicitly asked for exactly that. Even then, confirm with `ask_user` before the final button; if they did \
+        not ask for it, stop before the final button and report back instead.
         - Never type passwords, codes, or card numbers you were not given by the user in this conversation. Face ID, \
-        passcodes, PINs, and one-time codes belong to the user: stop and ask them.
+        passcodes, PINs, and one-time codes belong to the user: ask them with `ask_user` to enter it on \
+        the phone themselves (options ["Done"]), then check the screen.
         - Do not change system settings, delete data, or sign out of accounts unless asked.
         - If a tool result says an action was blocked or the user stopped you, stop acting and summarize.
         """

@@ -9,6 +9,9 @@ import PiDurableKit
 // Optional: AGENT_BASE_URL and AGENT_MODEL for another Anthropic-compatible endpoint (for example
 // https://zenmux.ai/api/anthropic and anthropic/claude-sonnet-5.5, with the key in AGENT_API_KEY),
 // AGENT_DB (sqlite path; default in-memory).
+//
+// When the agent asks (`ask_user`, or an action listed under AGENT_CONFIRM_TOOLS, comma-separated), type the
+// reply, or an option's number.
 
 let env = ProcessInfo.processInfo.environment
 guard let apiKey = env["DEEPSEEK_API_KEY"] ?? env["AGENT_API_KEY"] else {
@@ -28,9 +31,28 @@ let task = CommandLine.arguments.dropFirst().joined(separator: " ").nonEmptyOr(
 
 let phone = SimulatedPhone()
 let storage: Storage = env["AGENT_DB"].map { .sqlite(at: URL(fileURLWithPath: $0)) } ?? .memory
+let confirmTools = (env["AGENT_CONFIRM_TOOLS"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
 let host = try await AgentHost.open(
     providers: [provider], model: modelID, of: provider, storage: storage, driver: phone,
+    safety: SafetyPolicy.Configuration(confirmTools: confirmTools),
     onReport: { print("[report] \($0)") })
+
+// Answers the agent's questions from stdin; end of input cancels them.
+let asker = Task.detached {
+    for await prompt in host.prompts.updates() {
+        guard let prompt else { continue }
+        print("\n❓ \(prompt.question)")
+        for (i, option) in prompt.options.enumerated() { print("   \(i + 1). \(option)") }
+        print("> ", terminator: "")
+        fflush(stdout)
+        guard let line = readLine()?.trimmingCharacters(in: .whitespaces) else {
+            host.prompts.cancelAll()
+            continue
+        }
+        let picked = Int(line).flatMap { prompt.options.indices.contains($0 - 1) ? prompt.options[$0 - 1] : nil }
+        host.answer(prompt.id, picked ?? line)
+    }
+}
 
 print("▶ \(provider.ref(modelID))  task: \(task)\n")
 let submission = try await host.send(task)
@@ -58,6 +80,7 @@ let printer = Task {
 let settled = try await submission.wait()
 try await Task.sleep(for: .milliseconds(300))
 printer.cancel()
+asker.cancel()
 let usage = try await host.harness.usage()
 print("status: \(settled.status)")
 print("device log: \(await phone.log)")

@@ -61,6 +61,12 @@ struct AgentSettings: Codable, Equatable {
     var maxStepsPerRun = 60
     var blockedApps = SafetyPolicy.Configuration.defaultBlockedApps.joined(separator: ", ")
     var returnToAppWhenDone = true
+    /// Bring Fingertip forward when the agent asks something while it is in another app.
+    var returnToAppForQuestions = false
+    /// Action tools that wait for the user's approval each time.
+    var confirmTools: [String] = []
+    /// Apps (bundle ids or names) where every action waits for the user's approval.
+    var confirmApps: [String] = []
 
     private static let defaultsKey = "agentSettings"
 
@@ -81,6 +87,7 @@ struct AgentSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case providers, selection, maxStepsPerRun, blockedApps, returnToAppWhenDone
+        case returnToAppForQuestions, confirmTools, confirmApps
         // Before providers: one endpoint and model.
         case baseURL, modelID, supportsImages
     }
@@ -91,6 +98,9 @@ struct AgentSettings: Codable, Equatable {
         maxStepsPerRun = try container.decodeIfPresent(Int.self, forKey: .maxStepsPerRun) ?? defaults.maxStepsPerRun
         blockedApps = try container.decodeIfPresent(String.self, forKey: .blockedApps) ?? defaults.blockedApps
         returnToAppWhenDone = try container.decodeIfPresent(Bool.self, forKey: .returnToAppWhenDone) ?? defaults.returnToAppWhenDone
+        returnToAppForQuestions = try container.decodeIfPresent(Bool.self, forKey: .returnToAppForQuestions) ?? defaults.returnToAppForQuestions
+        confirmTools = try container.decodeIfPresent([String].self, forKey: .confirmTools) ?? defaults.confirmTools
+        confirmApps = try container.decodeIfPresent([String].self, forKey: .confirmApps) ?? defaults.confirmApps
         if let providers = try container.decodeIfPresent([ProviderProfile].self, forKey: .providers) {
             self.providers = providers
             selection = try container.decodeIfPresent(ModelSelection.self, forKey: .selection) ?? defaults.selection
@@ -110,6 +120,9 @@ struct AgentSettings: Codable, Equatable {
         try container.encode(maxStepsPerRun, forKey: .maxStepsPerRun)
         try container.encode(blockedApps, forKey: .blockedApps)
         try container.encode(returnToAppWhenDone, forKey: .returnToAppWhenDone)
+        try container.encode(returnToAppForQuestions, forKey: .returnToAppForQuestions)
+        try container.encode(confirmTools, forKey: .confirmTools)
+        try container.encode(confirmApps, forKey: .confirmApps)
     }
 
     /// The presets, with the old single endpoint and model folded in.
@@ -155,7 +168,9 @@ struct AgentSettings: Codable, Equatable {
     var safety: SafetyPolicy.Configuration {
         SafetyPolicy.Configuration(
             maxStepsPerRun: max(maxStepsPerRun, 1),
-            blockedApps: blockedAppList)
+            blockedApps: blockedAppList,
+            confirmTools: confirmTools,
+            confirmApps: confirmApps.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
     }
 }
 

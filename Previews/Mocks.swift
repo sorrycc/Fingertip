@@ -11,8 +11,10 @@ final class AppModel {
     private(set) var agentError: String?
     private(set) var isOpening = false
     private(set) var hasAPIKey = true
+    private(set) var run: RunInfo?
+    private(set) var pendingPrompt: UserPrompt?
     let automation: AutomationSession
-    @ObservationIgnored private var run: Task<Void, Never>?
+    @ObservationIgnored private var scripted: Task<Void, Never>?
 
     var isBusy: Bool { transcript.isBusy }
 
@@ -22,6 +24,11 @@ final class AppModel {
         switch scenario {
         case "working":
             transcript = Transcript(items: [Sample.request, .activity(Sample.activity(live: true))], status: .acting("Tapped “Search Maps”"))
+            run = Sample.run(action: "Tapped “Search Maps”", steps: 7)
+        case "confirm":
+            transcript = Transcript(items: [Sample.request, .activity(Sample.activity(live: true))], status: .waitingForUser(Sample.prompt.question))
+            run = Sample.run(action: "Waiting for you", steps: 9)
+            pendingPrompt = Sample.prompt
         case "done":
             transcript = Transcript(items: [Sample.request, .activity(Sample.activity(live: false)), Sample.answer])
         case "failed":
@@ -45,9 +52,11 @@ final class AppModel {
 
     /// Plays a scripted run so animations can be checked.
     func send(_ text: String) async {
+        if let prompt = pendingPrompt, prompt.allowsText { return answer(prompt.id, text) }
         let base = transcript.items + [.user(id: UUID().uuidString, text: text)]
         transcript = Transcript(items: base, status: .thinking)
-        run = Task {
+        run = Sample.run(action: "Thinking…", steps: 0, request: text)
+        scripted = Task {
             try? await Task.sleep(for: .seconds(1.2))
             let all = Sample.activity(live: true)
             for count in 1...all.entries.count {
@@ -56,16 +65,26 @@ final class AppModel {
                 activity.id = "run-\(base.count)"
                 activity.entries = Array(all.entries.prefix(count))
                 transcript = Transcript(items: base + [.activity(activity)], status: .acting(activity.steps.last?.title ?? ""))
+                run = Sample.run(action: activity.steps.last?.title ?? "Thinking…", steps: activity.steps.count, request: text)
                 try? await Task.sleep(for: .seconds(0.9))
             }
             var done = Sample.activity(live: false)
             done.id = "run-\(base.count)"
             transcript = Transcript(items: base + [.activity(done), Sample.answer])
+            run = nil
         }
     }
 
+    func answer(_ promptID: String, _ reply: String) {
+        pendingPrompt = nil
+        run?.action = "Thinking…"
+        transcript.status = .thinking
+    }
+
     func stop() async {
-        run?.cancel()
+        self.run = nil
+        pendingPrompt = nil
+        scripted?.cancel()
         transcript = Transcript(items: transcript.items + [.notice(id: UUID().uuidString, .stopped)])
     }
 
@@ -125,6 +144,16 @@ enum Sample {
 
         Next closest: *Sightglass Coffee*, 7 minutes away, open until 5 PM.
         """, isStreaming: false)
+
+    static let prompt = UserPrompt(
+        question: "Call Blue Bottle Coffee to check they have oat milk, or just give you the address?",
+        options: ["Address", "Call"], allowsText: true, source: .model)
+
+    static func run(action: String, steps: Int, request: String? = nil) -> RunInfo {
+        RunInfo(
+            request: request ?? "Open Maps and find the nearest coffee shop that's open now", action: action, app: "Maps",
+            steps: steps, maxSteps: 60, startedAt: .now.addingTimeInterval(-42))
+    }
 
     static func activity(live: Bool) -> Activity {
         var entries: [Activity.Entry] = [

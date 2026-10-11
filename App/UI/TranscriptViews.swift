@@ -410,6 +410,7 @@ enum StepStyle {
         case "launch_app": "square.grid.2x2.fill"
         case "open_url": "link"
         case "wait": "hourglass"
+        case "ask_user": "questionmark.bubble.fill"
         default: "wrench.and.screwdriver.fill"
         }
     }
@@ -419,6 +420,7 @@ enum StepStyle {
         case "view_screen", "screenshot", "wait": .secondary
         case "type_text": .teal
         case "launch_app", "open_url", "press_home": .indigo
+        case "ask_user": .orange
         default: .accentColor
         }
     }
@@ -490,6 +492,15 @@ struct RunStatusRow: View {
             }
             .padding(12)
             .background(Color.orange.opacity(0.1), in: Theme.card)
+        case .waitingForUser:
+            HStack(spacing: 10) {
+                Image(systemName: "questionmark.bubble.fill").font(.title3).foregroundStyle(.orange)
+                Text("Waiting for your answer above")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .transition(.opacity)
         case .idle, .acting:
             EmptyView()
         }

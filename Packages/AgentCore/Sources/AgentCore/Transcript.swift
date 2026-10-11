@@ -28,6 +28,8 @@ public struct Transcript: Sendable, Equatable {
         case idle
         case thinking
         case acting(String)
+        /// The agent asked the user (`ask_user`) and waits for the reply.
+        case waitingForUser(String)
         case retrying(at: Date, error: String)
     }
 
@@ -106,6 +108,12 @@ public struct Step: Sendable, Equatable, Identifiable {
     /// Base64 JPEG/PNG attached to the result (screenshots). Decoded only when shown.
     public var imageBase64: String?
     public var duration: Duration?
+
+    /// The question of an `ask_user` step.
+    public var question: String? {
+        guard tool == ComputerUse.askUserTool, title.hasPrefix(StepDescriber.askedPrefix) else { return nil }
+        return String(title.dropFirst(StepDescriber.askedPrefix.count))
+    }
 
     public init(
         id: String, tool: String, title: String, detail: String? = nil, status: Status, output: String? = nil,
@@ -213,6 +221,8 @@ public final class TranscriptBuilder {
             status = .idle
         } else if let retry {
             status = .retrying(at: retry.at, error: retry.error)
+        } else if let running, running.tool == ComputerUse.askUserTool {
+            status = .waitingForUser(running.question ?? running.title)
         } else if let running {
             status = .acting(running.title)
         } else {
@@ -307,11 +317,55 @@ enum StepDescriber {
             let url = URL(string: raw)
             let shown = url?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? raw
             return Description(title: "Opened \(shown.isEmpty ? "a link" : shown)", detail: app.map { "in \($0)" })
+        case ComputerUse.askUserTool:
+            let reply = result?.details?["reply"]?.stringValue
+            return Description(
+                title: askedPrefix + (args["question"]?.stringValue ?? "a question"),
+                detail: reply.map { "You answered: \($0)" })
         case "wait":
             let seconds = args["seconds"]?.doubleValue ?? 2
             return Description(title: "Waited \(seconds.formatted(.number.precision(.fractionLength(0...1))))s")
         default:
             return Description(title: call.name.replacingOccurrences(of: "_", with: " ").capitalizedFirst)
+        }
+    }
+
+    static let askedPrefix = "Asked: "
+
+    /// What an action is about to do, in the present tense ("tap “Send”", "open example.com/pay"), for approval
+    /// questions.
+    static func intent(_ call: ToolCall, screen: String?) -> String {
+        let args = call.arguments
+        switch call.name {
+        case "tap":
+            return "tap \(target(args, screen: screen))"
+        case "long_press":
+            return "touch and hold \(target(args, screen: screen))"
+        case "type_text":
+            var text = args["text"]?.stringValue ?? ""
+            let submits = text.hasSuffix("\n")
+            if submits { text.removeLast() }
+            if text.isEmpty { return "press return" }
+            return "type \(quoted(text))" + (submits ? " and press return" : "")
+        case "press_key":
+            return "press \(args["key"]?.stringValue ?? "a key")"
+        case "swipe":
+            return args["direction"]?.stringValue.map { "swipe \($0)" } ?? "swipe"
+        case "back":
+            return "go back"
+        case "dismiss_keyboard":
+            return "hide the keyboard"
+        case "answer_alert":
+            return "answer an alert with \(quoted(args["button"]?.stringValue ?? ""))"
+        case "press_home":
+            return "go to the Home Screen"
+        case "launch_app":
+            let bundleID = args["bundle_id"]?.stringValue ?? ""
+            return "open \(knownApps[bundleID] ?? args["app"]?.stringValue ?? fallbackName(bundleID))"
+        case "open_url":
+            return "open \(args["url"]?.stringValue ?? "a link")"
+        default:
+            return call.name.replacingOccurrences(of: "_", with: " ")
         }
     }
 

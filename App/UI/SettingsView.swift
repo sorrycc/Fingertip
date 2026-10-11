@@ -69,7 +69,10 @@ struct SettingsView: View {
                         }
                     }
                     NavigationLink {
-                        BlockedAppsView(apps: $draft.blockedAppList)
+                        AppListView(
+                            title: "Blocked Apps", apps: $draft.blockedAppList,
+                            defaults: SafetyPolicy.Configuration.defaultBlockedApps,
+                            footer: "For example com.apple.Passbook or “Banking”. The agent can't tap, type, or swipe while one of these is open, and can't launch them.")
                     } label: {
                         HStack {
                             SettingLabel("Blocked apps", systemImage: "hand.raised.fill", tint: .red)
@@ -81,6 +84,37 @@ struct SettingsView: View {
                     Text("Safety")
                 } footer: {
                     Text("The agent stops after this many taps, swipes, or keystrokes, and never acts inside blocked apps. It won't buy, send, or post unless you ask it to.")
+                }
+
+                Section {
+                    NavigationLink {
+                        ConfirmToolsView(tools: $draft.confirmTools)
+                    } label: {
+                        HStack {
+                            SettingLabel("Actions", systemImage: "hand.tap.fill", tint: .indigo)
+                            Spacer()
+                            Text(draft.confirmTools.isEmpty ? "None" : "\(draft.confirmTools.count)").foregroundStyle(.secondary)
+                        }
+                    }
+                    NavigationLink {
+                        AppListView(
+                            title: "Ask Before Acting In", apps: $draft.confirmApps, defaults: nil,
+                            footer: "Every tap, keystroke, and swipe in these apps waits for your OK. Bundle id or app name, for example com.apple.MobileSMS or “Messages”.")
+                    } label: {
+                        HStack {
+                            SettingLabel("Apps", systemImage: "app.badge.checkmark", tint: .teal)
+                            Spacer()
+                            Text(draft.confirmApps.isEmpty ? "None" : "\(draft.confirmApps.count)").foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle(isOn: $draft.returnToAppForQuestions) {
+                        SettingLabel("Open Fingertip for questions", systemImage: "questionmark.bubble.fill", tint: .orange,
+                                     detail: "Otherwise answer from the notification or the Live Activity.")
+                    }
+                } header: {
+                    Text("Ask Before")
+                } footer: {
+                    Text("The agent always asks before sending, paying, or deleting. These make it ask before more. It waits until you answer or tap Stop.")
                 }
 
                 Section {
@@ -326,8 +360,47 @@ private struct LabeledField<Field: View>: View {
     }
 }
 
-private struct BlockedAppsView: View {
+/// Actions the agent must ask about each time.
+private struct ConfirmToolsView: View {
+    @Binding var tools: [String]
+
+    private static let choices: [(tool: String, title: String, icon: String)] = [
+        ("tap", "Tap", "hand.tap"), ("long_press", "Touch and hold", "hand.point.up.left"),
+        ("type_text", "Type text", "keyboard"), ("press_key", "Press a key", "return"),
+        ("swipe", "Swipe", "hand.draw"), ("back", "Go back", "chevron.backward"),
+        ("answer_alert", "Answer alerts", "exclamationmark.bubble"), ("launch_app", "Open apps", "square.grid.2x2"),
+        ("open_url", "Open links", "link"), ("press_home", "Go home", "house"),
+        ("dismiss_keyboard", "Hide the keyboard", "keyboard.chevron.compact.down"),
+    ]
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Self.choices, id: \.tool) { choice in
+                    Toggle(isOn: Binding(
+                        get: { tools.contains(choice.tool) },
+                        set: { on in
+                            tools.removeAll { $0 == choice.tool }
+                            if on { tools.append(choice.tool) }
+                        })) {
+                        Label(choice.title, systemImage: choice.icon)
+                    }
+                }
+            } footer: {
+                Text("Each of these waits for your OK, in the chat, the notification, or the Live Activity.")
+            }
+        }
+        .navigationTitle("Ask Before")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// An editable list of apps, by bundle id or name.
+private struct AppListView: View {
+    let title: String
     @Binding var apps: [String]
+    let defaults: [String]?
+    let footer: String
     @State private var newApp = ""
     @FocusState private var adding: Bool
 
@@ -354,17 +427,19 @@ private struct BlockedAppsView: View {
                         .disabled(newApp.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } footer: {
-                Text("For example com.apple.Passbook or “Banking”. The agent can't tap, type, or swipe while one of these is open, and can't launch them.")
+                Text(footer)
             }
-            Section {
-                Button("Restore Defaults") {
-                    withAnimation { apps = SafetyPolicy.Configuration.defaultBlockedApps }
+            if let defaults {
+                Section {
+                    Button("Restore Defaults") {
+                        withAnimation { apps = defaults }
+                    }
                 }
             }
         }
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .navigationTitle("Blocked Apps")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { EditButton() }
     }

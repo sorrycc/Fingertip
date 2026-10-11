@@ -72,6 +72,22 @@ import Testing
         #expect(ended.steps.last?.status == .interrupted)
     }
 
+    @Test func askUserShowsAsWaitingThenAnswered() throws {
+        let call = [("q", "ask_user", #"{"question":"Send it?","options":["Send","Cancel"]}"#)]
+        let entries = [try user(1, "Text Alex"), try assistant(2, "", calls: call, stop: "toolUse")]
+        let builder = TranscriptBuilder()
+        let waiting = builder.build(entries: entries, isBusy: true)
+        #expect(waiting.status == .waitingForUser("Send it?"))
+
+        let answered = try entry(3, "pi.tool-result",
+            #"{"role":"toolResult","toolCallId":"q","toolName":"ask_user","content":[{"type":"text","text":"The user replied: Send"}],"isError":false,"timestamp":5000,"details":{"reply":"Send"}}"#)
+        let done = builder.build(entries: entries + [answered], isBusy: true)
+        guard case .activity(let activity) = done.items.last else { Issue.record("no activity"); return }
+        #expect(activity.steps[0].title == "Asked: Send it?")
+        #expect(activity.steps[0].detail == "You answered: Send")
+        #expect(done.status == .thinking)
+    }
+
     @Test func describesOtherTools() {
         func title(_ name: String, _ args: JSONObject) -> String {
             StepDescriber.describe(ToolCall(id: "x", name: name, arguments: args), result: nil, screen: nil).title

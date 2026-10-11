@@ -2,7 +2,7 @@ import AgentCore
 import SwiftUI
 
 /// Simulator-only build of the UI with scripted data, for design work without a phone.
-/// Pick a state with the `-scenario` launch argument: empty, setup, starting, working, done, failed;
+/// Pick a state with the `-scenario` launch argument: empty, setup, starting, working, confirm, done, failed;
 /// or open a screen directly: settings, log.
 @main
 struct PreviewApp: App {

@@ -14,9 +14,14 @@ extension ComputerUse {
         struct ViewArgs: Decodable, Sendable { var screenshot: Bool? }
         struct FindArgs: Decodable, Sendable { var name: String }
         struct StepsArgs: Decodable, Sendable { var steps: [ActionArgs] }
+        struct AskArgs: Decodable, Sendable {
+            var question: String
+            var options: [String]?
+            var allow_text: Bool?
+        }
 
         /// Arguments of every action; each tool's schema offers its own subset, and `run_steps` steps use them all.
-        struct ActionArgs: Decodable, Sendable {
+        struct ActionArgs: Codable, Sendable {
             var action: String?
             var element: Int?
             var label: String?
@@ -139,6 +144,54 @@ extension ComputerUse {
                 let before = await state.screen
                 let outcome = try await waitCondition(args)
                 return await compose([outcome.summary], before: before, screen: outcome.screen, error: outcome.error, key: nil)
+            }
+        }
+
+        // MARK: Asking the user
+
+        static let maxOptions = 4
+
+        var askUser: Tool {
+            Tool(
+                ComputerUse.askUserTool,
+                description: """
+                    Ask the user and wait for the reply: to confirm before a step that can't be undone (send, pay, \
+                    book, delete, post), to pick between choices, or for information only they have. Offer short \
+                    options as buttons, e.g. ["Send", "Cancel"]. Leave the phone as it is while waiting.
+                    """,
+                parameters: .object([
+                    "question": JSONSchema.string("The question, short and specific: what you are about to do and why"),
+                    "options": JSONSchema.array(of: .string, description: "Up to \(Self.maxOptions) short answers shown as buttons").optional,
+                    "allow_text": JSONSchema.boolean("Also let the user type an answer; always on without options").optional,
+                ]),
+                replay: .safe
+            ) { (args: AskArgs, _) in
+                try await ask(args)
+            }
+        }
+
+        /// Puts the question to the user and waits for the reply.
+        func ask(_ args: AskArgs) async throws -> ToolResult {
+            guard !policy.isStopped else {
+                throw DriverError("The user pressed Stop. Do not take any more actions; summarize what you did and what is left.")
+            }
+            let question = args.question.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !question.isEmpty else { throw DriverError("Pass a question.") }
+            var options: [String] = []
+            for option in args.options ?? [] {
+                let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, !options.contains(trimmed) { options.append(trimmed) }
+            }
+            guard options.count <= Self.maxOptions else {
+                throw DriverError("At most \(Self.maxOptions) options; ask a narrower question or let the user type.")
+            }
+            let prompt = UserPrompt(
+                question: question, options: options, allowsText: options.isEmpty || args.allow_text == true, source: .model)
+            switch await policy.prompts.ask(prompt) {
+            case .answered(let reply):
+                return ToolResult.text("The user replied: \(reply)", details: .object(["reply": .string(reply)]))
+            case .cancelled:
+                throw DriverError("The user stopped without answering. Do not take any more actions; summarize what you did and what is left.")
             }
         }
 
@@ -685,7 +738,19 @@ extension ComputerUse {
                         failure = "Step \(i + 1) (\(action)) was blocked: \(message)"
                         break
                     }
-                    if case .block(let message) = policy.check(tool: action, app: await state.app) {
+                    let app = await state.app
+                    if case .block(let message) = policy.gate(tool: action, app: app) {
+                        failure = "Step \(i + 1) (\(action)) was blocked: \(message)"
+                        break
+                    }
+                    if policy.needsApproval(tool: action, app: app) {
+                        let intent = StepDescriber.intent(Self.call(action, step), screen: await state.screen?.text)
+                        if case .block(let message) = await policy.approve(tool: action, action: intent, app: app) {
+                            failure = "Step \(i + 1) (\(action)) was blocked: \(message)"
+                            break
+                        }
+                    }
+                    if case .block(let message) = policy.count(tool: action) {
                         failure = "Step \(i + 1) (\(action)) was blocked: \(message)"
                         break
                     }
@@ -707,6 +772,13 @@ extension ComputerUse {
             if let failure { parts.append(failure + " Later steps were not run.") }
             if unsettled { return await report(parts, before: before, key: nil) }
             return await compose(parts, before: before, screen: await state.screen, error: nil, key: nil)
+        }
+
+        /// A step as a tool call, for describing it.
+        static func call(_ action: String, _ step: ActionArgs) -> ToolCall {
+            let data = (try? JSONEncoder().encode(step)) ?? Data()
+            let arguments = (try? JSONDecoder().decode(JSONObject.self, from: data)) ?? [:]
+            return ToolCall(id: "", name: action, arguments: arguments)
         }
 
         // MARK: Reading and reporting

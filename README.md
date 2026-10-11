@@ -25,7 +25,11 @@ Chat UI ── AgentCore (agent loop, tools, safety) ── model API
 - **Model**: any Anthropic-compatible API. DeepSeek and ZenMux (Claude models) are built in, and you can add more
   providers in Settings. Switch models from the chat toolbar; the switch applies from the next step.
 - **Device control**: an on-device XCTest runner based on [TouchSynthesis](https://github.com/willfaust/TouchSynthesis).
-- **Safety**: an action budget per request, a stop button, and blocked apps and URL schemes. All are configurable.
+- **Safety**: an action budget per request, a stop button, blocked apps and URL schemes, and actions or apps that
+  need your approval. All are configurable.
+- **While it works**: a status bar in the chat and a Live Activity show what the agent is doing. When it asks a
+  question (for example before sending a message), you can answer from the chat, the Live Activity, or a
+  notification.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
@@ -68,11 +72,13 @@ swift test
 DEEPSEEK_API_KEY=sk-... swift run AgentCLI "Find the cheapest flight from Dublin to London in SkyFares"
 ```
 
-`AGENT_MODEL` and `AGENT_BASE_URL` override the model. Set `AGENT_DB` to a file path to test resuming a run.
+`AGENT_MODEL` and `AGENT_BASE_URL` override the model. Set `AGENT_DB` to a file path to test resuming a run. When the
+agent asks a question, type the reply or an option's number. `AGENT_CONFIRM_TOOLS=open_url,tap` makes those
+actions wait for approval.
 
 To work on the UI in the Simulator, run `xcodegen generate` and build the `FingertipPreview` scheme. This build
 uses mock data from `Previews/Mocks.swift`. Launch it with `-scenario <name>` to open a specific state: `empty`,
-`setup`, `starting`, `working`, `done`, `failed`, `settings`, or `log`.
+`setup`, `starting`, `working`, `confirm`, `done`, `failed`, `settings`, or `log`.
 
 ## Project layout
 
@@ -81,6 +87,7 @@ uses mock data from `Previews/Mocks.swift`. Launch it with `-scenario <name>` to
 | `Packages/AgentCore` | Agent loop, tools, screen formatter, safety policy, simulated phone, `AgentCLI` |
 | `App/Automation` | Automation setup, XCTest driver, accessibility snapshots |
 | `App/Agent`, `App/UI` | App state, settings and Keychain, SwiftUI screens |
+| `Shared`, `Widgets` | Live Activity model and App Intents, and the widget extension that draws it |
 | `Previews` | Simulator-only UI build with mock data |
 | `vendor/TouchSynthesis`, `vendor/idevice` | Git submodules for device communication and touch synthesis |
 | `scripts` | Install, pairing, idevice build, log retrieval, icon generation |

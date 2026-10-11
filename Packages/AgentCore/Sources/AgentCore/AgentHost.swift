@@ -67,6 +67,9 @@ public final class AgentHost: Sendable {
     public let screen: ScreenState
     let models: Models
 
+    /// Questions the agent is waiting on the user to answer.
+    public var prompts: UserPrompts { policy.prompts }
+
     init(harness: Harness, conversation: Conversation, policy: SafetyPolicy, screen: ScreenState, models: Models) {
         self.harness = harness
         self.models = models
@@ -134,7 +137,13 @@ public final class AgentHost: Sendable {
         return try await conversation.submit(text, whenBusy: .steer)
     }
 
-    /// Stops the current run: blocks further actions and aborts the model turn.
+    /// Answers the question the agent is waiting on; returns false when it is no longer pending.
+    @discardableResult
+    public func answer(_ promptID: String, _ reply: String) -> Bool {
+        prompts.answer(id: promptID, reply)
+    }
+
+    /// Stops the current run: blocks further actions, cancels a pending question, and aborts the model turn.
     public func stop() async {
         policy.requestStop()
         try? await conversation.abort()
