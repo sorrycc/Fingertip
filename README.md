@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="App/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="128" height="128" alt="Fingertip icon">
+</p>
+
 # Fingertip
 
 An AI agent that runs on the iPhone and operates other apps through their UI. You ask in a chat, and it reads the
