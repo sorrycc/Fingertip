@@ -10,7 +10,6 @@ final class AppModel {
     private(set) var transcript = Transcript()
     private(set) var agentError: String?
     private(set) var isOpening = false
-    private(set) var needsRelaunch = false
     private(set) var hasAPIKey = true
     let automation: AutomationSession
     @ObservationIgnored private var run: Task<Void, Never>?
@@ -35,9 +34,13 @@ final class AppModel {
 
     func openAgent() async {}
 
-    func save(_ settings: AgentSettings, apiKey: String) async {
+    func save(_ settings: AgentSettings, apiKeys: [String: String]) async {
         self.settings = settings
-        hasAPIKey = !apiKey.isEmpty
+        hasAPIKey = !apiKeys[settings.selection.providerID, default: ""].isEmpty
+    }
+
+    func select(_ selection: ModelSelection) async {
+        settings.selection = selection
     }
 
     /// Plays a scripted run so animations can be checked.

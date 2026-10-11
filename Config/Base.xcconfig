@@ -1,5 +1,6 @@
 // Shared build settings. Personal values go in Secrets.xcconfig (gitignored).
 DEVELOPMENT_TEAM =
 AGENT_API_KEY =
+ZENMUX_API_KEY =
 
 #include? "Secrets.xcconfig"

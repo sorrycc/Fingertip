@@ -22,7 +22,8 @@ Chat UI ── AgentCore (agent loop, tools, safety) ── model API
 
 - **Agent loop**: a durable loop on [PiDurableKit](https://github.com/finnvoor/PiDurableKit), with state stored in
   SQLite. If iOS kills the app, the run resumes when you reopen it.
-- **Model**: any Anthropic-compatible API. DeepSeek is the default.
+- **Model**: any Anthropic-compatible API. DeepSeek and ZenMux (Claude models) are built in, and you can add more
+  providers in Settings. Switch models from the chat toolbar; the switch applies from the next step.
 - **Device control**: an on-device XCTest runner based on [TouchSynthesis](https://github.com/willfaust/TouchSynthesis).
 - **Safety**: an action budget per request, a stop button, and blocked apps and URL schemes. All are configurable.
 
@@ -40,7 +41,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 ```bash
 git clone --recursive <repo-url> && cd fingertip
 cp Config/Secrets.xcconfig.example Config/Secrets.xcconfig
-# Edit Config/Secrets.xcconfig: set AGENT_API_KEY and DEVELOPMENT_TEAM
+# Edit Config/Secrets.xcconfig: set DEVELOPMENT_TEAM and AGENT_API_KEY (DeepSeek) and/or ZENMUX_API_KEY
 scripts/install.sh   # builds idevice, builds and installs the app, pushes the pairing record
 ```
 

@@ -1,6 +1,8 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import AgentCore
+import PiDurableKit
 
 @Suite struct ScreenFormatterTests {
     let phone = SimulatedPhone()
@@ -69,5 +71,29 @@ import Testing
         let text = ScreenFormatter(screen: phone.screenSize).render(try await phone.snapshot()).text
         #expect(text.contains("19:20 FR 672, €29"))
         #expect(try await phone.screenshot().count > 100)
+    }
+}
+
+@Suite struct AgentHostTests {
+    @Test func switchesBetweenProvidersAndDropsScreenshotsForTextOnlyModels() async throws {
+        let deepSeek = ModelProvider.deepSeek(apiKey: "sk-test")
+        let zenMux = ModelProvider(
+            id: "fingertip-zenmux", name: "ZenMux", baseURL: URL(string: "https://zenmux.ai/api/anthropic")!,
+            apiKey: "sk-test", modelIDs: ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5"], supportsImages: false)
+        let host = try await AgentHost.open(
+            providers: [deepSeek, zenMux], model: "deepseek-flash", of: deepSeek, storage: .memory, driver: SimulatedPhone())
+
+        var agent = try await host.conversation.agent()
+        #expect(agent.model == deepSeek.ref("deepseek-flash"))
+        #expect(agent.tools.contains(ComputerUse.screenshotTool))
+
+        try await host.select("anthropic/claude-haiku-5.5", of: zenMux)
+        agent = try await host.conversation.agent()
+        #expect(agent.model == ModelRef(provider: "fingertip-zenmux", modelId: "anthropic/claude-haiku-5.5"))
+        #expect(!agent.tools.contains(ComputerUse.screenshotTool))
+        #expect(await host.screen.imagesAllowed == false)
+
+        try await host.select("deepseek-flash", of: deepSeek)
+        #expect(try await host.conversation.agent().tools.contains(ComputerUse.screenshotTool))
     }
 }

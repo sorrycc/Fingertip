@@ -59,6 +59,19 @@ struct ChatView: View {
             .accessibilityHint("Opens setup")
         }
         ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                ModelPicker(providers: model.settings.providers, selection: Binding(
+                    get: { model.settings.selection },
+                    set: { selection in Task { await model.select(selection) } })) {
+                    Text("Model")
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label("Model: \(model.settings.selection.modelID)", systemImage: "cpu")
+            }
+            .disabled(model.isBusy)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             Button("New task", systemImage: "square.and.pencil") {
                 Task { await model.newTask() }
             }

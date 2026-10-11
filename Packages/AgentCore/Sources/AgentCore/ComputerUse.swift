@@ -5,6 +5,8 @@ import PiDurableKit
 /// The last screen the model saw, so `tap(element: 3)` resolves to the frame it was shown.
 public actor ScreenState {
     public private(set) var screen: Rendered?
+    /// Whether the selected model accepts images, so `view_screen` can attach a screenshot.
+    public private(set) var imagesAllowed = true
     /// The last action that changed nothing: its key, the screen it ran on, and how many times in a row.
     private var idle: (key: String, body: String, count: Int)?
 
@@ -14,6 +16,8 @@ public actor ScreenState {
     public var elements: [Int: CGRect] { screen?.elements ?? [:] }
 
     func update(_ rendered: Rendered) { screen = rendered }
+
+    func setImagesAllowed(_ allowed: Bool) { imagesAllowed = allowed }
 
     func frame(of element: Int) -> CGRect? { screen?.items[element]?.frame }
 
@@ -54,7 +58,8 @@ public struct ComputerUseOptions: Sendable {
     public var observeAfterActions: Bool
     /// After an action in the same app, return only what changed instead of the whole screen.
     public var deltaObservations: Bool
-    /// Whether the model accepts images; without it the screenshot tool is not offered.
+    /// Whether screenshots are offered at all; per model, ``AgentHost/select(_:of:)`` also turns them off for models
+    /// without image input.
     public var allowScreenshots: Bool
 
     public init(
@@ -70,6 +75,8 @@ public struct ComputerUseOptions: Sendable {
 
 public enum ComputerUse {
     public static let extensionName = "computer-use"
+    /// Left out of the agent's tools while the selected model doesn't accept images.
+    public static let screenshotTool = "screenshot"
     /// Tools that change the device; the safety policy counts and gates these. `run_steps` checks each of its
     /// steps itself.
     public static let actionTools: Set<String> = [

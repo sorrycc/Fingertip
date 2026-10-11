@@ -12,24 +12,38 @@ final class AppModel {
     private(set) var transcript = Transcript()
     private(set) var agentError: String?
     private(set) var isOpening = false
-    /// Set when model, URL, or key changed after the agent opened; those apply on the next launch.
-    private(set) var needsRelaunch = false
-    private(set) var hasAPIKey = APIKeyStore.key != nil
+    /// Whether the selected model's provider has a key.
+    private(set) var hasAPIKey = false
 
     let automation = AutomationSession()
     @ObservationIgnored private var host: AgentHost?
     @ObservationIgnored private var driver: SelfRunnerDriver?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private let builder = TranscriptBuilder()
-    @ObservationIgnored private var openedWith: (config: AgentConfig, apiKey: String)?
+    /// What the open agent has registered, by profile id.
+    @ObservationIgnored private var registered: [String: ModelProvider] = [:]
 
     var isBusy: Bool { transcript.isBusy }
+
+    init() {
+        hasAPIKey = settings.selectedProvider.flatMap { APIKeyStore.key(for: $0.id) } != nil
+    }
+
+    /// The providers that can be registered: a valid URL, models, and a key.
+    private var usableProviders: [String: ModelProvider] {
+        Dictionary(uniqueKeysWithValues: settings.providers.compactMap { profile in
+            profile.modelProvider(apiKey: APIKeyStore.key(for: profile.id)).map { (profile.id, $0) }
+        })
+    }
 
     /// Opens the agent; reopening resumes any run iOS interrupted.
     func openAgent() async {
         guard host == nil, !isOpening else { return }
-        guard let config = settings.agentConfig else { return agentError = "The base URL in Settings isn't valid." }
-        guard let apiKey = APIKeyStore.key else { return agentError = "Add an API key in Settings to get started." }
+        if let problem = settings.modelProblem { return agentError = problem }
+        let providers = usableProviders
+        guard let selected = providers[settings.selection.providerID] else {
+            return agentError = "Add an API key for \(settings.selectedProvider?.displayName ?? "the provider") in Settings to get started."
+        }
         isOpening = true
         defer { isOpening = false }
         do {
@@ -37,12 +51,13 @@ final class AppModel {
             let storage = Storage.sqlite(at: URL.applicationSupportDirectory.appending(path: "agent.sqlite"))
             try FileManager.default.createDirectory(at: .applicationSupportDirectory, withIntermediateDirectories: true)
             let host = try await AgentHost.open(
-                config: config, apiKey: apiKey, storage: storage, driver: driver, safety: settings.safety,
+                providers: Array(providers.values), model: settings.selection.modelID, of: selected,
+                storage: storage, driver: driver, safety: settings.safety,
                 credentials: KeychainCredentialStore.keychain(service: "com.sorrycc.fingertip.models"),
                 onReport: { message in print("[pi-durable] \(message)") })
             self.host = host
             self.driver = driver
-            openedWith = (config, apiKey)
+            registered = providers
             agentError = nil
             watch(host.conversation)
         } catch {
@@ -50,18 +65,42 @@ final class AppModel {
         }
     }
 
-    /// Saves settings. Safety changes apply now; model changes apply now if the agent hasn't opened yet.
-    func save(_ settings: AgentSettings, apiKey: String) async {
+    /// Saves settings and keys (by profile id). Everything applies now; a model change from the next model request.
+    func save(_ settings: AgentSettings, apiKeys: [String: String]) async {
+        for (provider, key) in apiKeys { APIKeyStore.setKey(key, for: provider) }
+        for removed in self.settings.providers where !settings.providers.contains(where: { $0.id == removed.id }) {
+            APIKeyStore.setKey(nil, for: removed.id)
+        }
+        await apply(settings)
+    }
+
+    /// Switches the model, from the chat's model menu.
+    func select(_ selection: ModelSelection) async {
+        var settings = settings
+        settings.selection = selection
+        await apply(settings)
+    }
+
+    private func apply(_ settings: AgentSettings) async {
         self.settings = settings
         settings.save()
-        APIKeyStore.key = apiKey
-        hasAPIKey = !apiKey.isEmpty
-        host?.policy.configuration = settings.safety
-        if let openedWith {
-            needsRelaunch = settings.agentConfig != openedWith.config || apiKey != openedWith.apiKey
-        } else {
+        hasAPIKey = settings.selectedProvider.flatMap { APIKeyStore.key(for: $0.id) } != nil
+        guard let host else {
             agentError = nil
-            await openAgent()
+            return await openAgent()
+        }
+        host.policy.configuration = settings.safety
+        do {
+            let providers = usableProviders
+            for (id, provider) in providers where registered[id] != provider { try await host.register(provider) }
+            registered = providers
+            guard let selected = providers[settings.selection.providerID] else {
+                return agentError = "Add an API key for \(settings.selectedProvider?.displayName ?? "the provider") in Settings."
+            }
+            try await host.select(settings.selection.modelID, of: selected)
+            agentError = nil
+        } catch {
+            agentError = "Couldn't switch the model: \(error.localizedDescription)"
         }
     }
 

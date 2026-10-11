@@ -6,26 +6,33 @@ import PiDurableKit
 //
 //   DEEPSEEK_API_KEY=sk-… swift run AgentCLI "Find the cheapest flight from Dublin to London in SkyFares"
 //
-// Optional: AGENT_BASE_URL, AGENT_MODEL, AGENT_DB (sqlite path; default in-memory).
+// Optional: AGENT_BASE_URL and AGENT_MODEL for another Anthropic-compatible endpoint (for example
+// https://zenmux.ai/api/anthropic and anthropic/claude-sonnet-5.5, with the key in AGENT_API_KEY),
+// AGENT_DB (sqlite path; default in-memory).
 
 let env = ProcessInfo.processInfo.environment
 guard let apiKey = env["DEEPSEEK_API_KEY"] ?? env["AGENT_API_KEY"] else {
     FileHandle.standardError.write("Set DEEPSEEK_API_KEY\n".data(using: .utf8)!)
     exit(2)
 }
-var config = AgentConfig()
-if let base = env["AGENT_BASE_URL"].flatMap(URL.init(string:)) { config.baseURL = base }
-if let model = env["AGENT_MODEL"] { config.modelID = model }
+var provider = ModelProvider.deepSeek(apiKey: apiKey)
+if let base = env["AGENT_BASE_URL"].flatMap(URL.init(string:)) {
+    provider.id = "fingertip-custom"
+    provider.name = base.host() ?? "Custom"
+    provider.baseURL = base
+}
+if let model = env["AGENT_MODEL"] { provider.modelIDs = [model] }
+let modelID = provider.modelIDs[0]
 let task = CommandLine.arguments.dropFirst().joined(separator: " ").nonEmptyOr(
     "Open SkyFares and find the cheapest flight from Dublin to London. Tell me the flight and price.")
 
 let phone = SimulatedPhone()
 let storage: Storage = env["AGENT_DB"].map { .sqlite(at: URL(fileURLWithPath: $0)) } ?? .memory
 let host = try await AgentHost.open(
-    config: config, apiKey: apiKey, storage: storage, driver: phone,
+    providers: [provider], model: modelID, of: provider, storage: storage, driver: phone,
     onReport: { print("[report] \($0)") })
 
-print("▶ \(config.modelRef)  task: \(task)\n")
+print("▶ \(provider.ref(modelID))  task: \(task)\n")
 let submission = try await host.send(task)
 
 // Print tool calls and results as entries are committed.

@@ -92,7 +92,7 @@ extension ComputerUse {
             ) { (args: ViewArgs, _) in
                 let screen = try await freshScreen()
                 var result = ToolResult.text(screen.text, details: .object(screenDetails(screen)))
-                if args.screenshot == true, options.allowScreenshots {
+                if args.screenshot == true, options.allowScreenshots, await state.imagesAllowed {
                     let jpeg = try await driver.screenshot()
                     result.content?.append(.image(ImageContent(data: jpeg, mimeType: "image/jpeg")))
                 }
@@ -102,7 +102,7 @@ extension ComputerUse {
 
         var screenshot: Tool {
             Tool(
-                "screenshot",
+                ComputerUse.screenshotTool,
                 description: "Take a screenshot. Image pixels equal screen points, so tap x/y can be read straight off it.",
                 replay: .safe
             ) { _ in
